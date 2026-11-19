@@ -1,0 +1,48 @@
+@import 'katex/dist/katex.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default brand palette (overridden at runtime via CSS variables) */
+:root {
+  --brand-50: #eef2ff;
+  --brand-100: #e0e7ff;
+  --brand-200: #c7d2fe;
+  --brand-300: #a5b4fc;
+  --brand-400: #818cf8;
+  --brand-500: #6366f1;
+  --brand-600: #4f46e5;
+  --brand-700: #4338ca;
+  --brand-800: #3730a3;
+  --brand-900: #312e81;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-slate-100 text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100;
+}
+
+/* Focus styles for WCAG 2.2 AA visibility */
+:focus-visible {
+  outline: none;
+}
+
+/* Print styles: report cards, certificates, worksheets */
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .no-print { display: none !important; }
+  .print-page { box-shadow: none !important; border: none !important; margin: 0 !important; padding: 0 !important; }
+  @page { margin: 1.5cm; }
+}
+
+/* KaTeX sizing inside lesson content */
+.katex { font-size: 1.05em; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.5rem 0; }
+
+/* Subtle scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300 dark:bg-slate-600; }

@@ -1,0 +1,3 @@
+# SPA fallback — any unknown path serves index.html so the app boots.
+# Deployed automatically with the site by Netlify / Render / Cloudflare (wrangler).
+/*    /index.html   200

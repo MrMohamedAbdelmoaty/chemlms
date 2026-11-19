@@ -1,0 +1,18 @@
+# Render — static site blueprint.
+# Deploy: connect this repo in Render → "New → Static Site" and it picks up this file.
+# No web service sleep applies to static sites (CDN-served, always up).
+services:
+  - type: web
+    name: chemlms
+    plan: free
+    runtime: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: "/*"
+        destination: "/index.html"
+    headers:
+      - path: "/*"
+        name: Cache-Control
+        value: "public, max-age=0, must-revalidate"

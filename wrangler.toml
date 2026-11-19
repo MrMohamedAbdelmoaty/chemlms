@@ -1,0 +1,13 @@
+# Cloudflare Pages — configuration used by the Wrangler CLI for `wrangler pages deploy`.
+# Two ways to publish:
+#   1. Easiest: connect this repo in the Cloudflare Pages dashboard (no CLI needed).
+#      Build command:  npm run build
+#      Output directory: dist
+#   2. CLI: run `wrangler pages deploy dist --project-name=chemlms` after `npm run build`.
+name = "chemlms"
+
+[placement]
+mode = "smart"
+
+# The site is a pure static SPA (no backend in this first delivery).
+# Assets are served from `dist/` produced by `npm run build`.

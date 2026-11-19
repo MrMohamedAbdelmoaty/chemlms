@@ -25,6 +25,7 @@ const NAV: Record<Role, NavItem[]> = {
     { key: 'gradebook', labelKey: 'gradebook', icon: '📒' },
     { key: 'attendance', labelKey: 'attendance', icon: '✅' },
     { key: 'chemistry', labelKey: 'chemistryLab', icon: '⚗️' },
+    { key: 'videos', labelKey: 'videos', icon: '🎬' },
     { key: 'users', labelKey: 'users', icon: '👥' },
     { key: 'classes', labelKey: 'classes', icon: '🏫' },
     { key: 'messaging', labelKey: 'messaging', icon: '💬' },

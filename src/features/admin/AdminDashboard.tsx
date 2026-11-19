@@ -16,9 +16,10 @@ import { useApp } from '../../context/AppContext';
 import {
   adminResetPassword, announcementApi, assessmentApi, attendanceApi, chemApi,
   classApi, courseApi, curriculumApi, exportCsv, gradebookApi, messageApi,
-  notificationApi, questionApi, settingsApi, usersApi,
+  notificationApi, questionApi, settingsApi, usersApi, videosApi,
 } from '../../services/api';
 import { db } from '../../services/db';
+import { UploadForm } from '../chem/VideoLibrary';
 import {
   Avatar, Badge, Button, Card, EmptyState, Input, Modal, ProgressBar, Select,
   StatCard, Table, THead, TRow, TD, Textarea, Toggle,
@@ -71,6 +72,8 @@ export function AdminDashboard({ admin, view }: { admin: User; view: string }) {
       return <NotificationsView />;
     case 'chemistry':
       return <ChemistryView />;
+    case 'videos':
+      return <VideosView />;
     case 'users':
       return <UsersView admin={admin} />;
     case 'classes':
@@ -1179,6 +1182,53 @@ function ConstantsManager() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+/* --------------------------------- videos ---------------------------------- */
+function VideosView() {
+  const { user, toast } = useApp();
+  const [videos, setVideos] = useState(() => videosApi.list());
+  const [playing, setPlaying] = useState<import('../../types').Video | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  const refresh = () => setVideos(videosApi.list());
+
+  const remove = (v: import('../../types').Video) => {
+    if (!confirm(`Delete video "${v.title}"?`)) return;
+    videosApi.remove(v.id, user?.id ?? 'u-admin');
+    toast('Video deleted', 'success');
+    refresh();
+  };
+
+  return (
+    <Card title="Videos" subtitle={`${videos.length} uploaded videos — stored permanently in Supabase`}
+      action={<Button className="h-9 px-3 text-xs" onClick={() => setUploadOpen(true)}>+ Upload video</Button>}>
+      <div className="space-y-2">
+        {videos.map((v) => (
+          <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{v.title}</span>
+                <Badge tone="blue">{v.category}</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{(v.sizeBytes / 1024 / 1024).toFixed(1)} MB · {new Date(v.at).toLocaleString()}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" className="h-8 px-2 text-xs" onClick={() => setPlaying(v)}>Watch</Button>
+              <Button variant="ghost" className="h-8 px-2 text-xs text-rose-600" onClick={() => remove(v)}>Delete</Button>
+            </div>
+          </div>
+        ))}
+        {videos.length === 0 && <EmptyState>No videos yet — use "+ Upload video" to add one.</EmptyState>}
+      </div>
+      <Modal open={uploadOpen} onClose={() => setUploadOpen(false)} title="Upload video" wide>
+        <UploadForm onDone={() => { setUploadOpen(false); refresh(); }} />
+      </Modal>
+      <Modal open={!!playing} onClose={() => setPlaying(null)} title={playing?.title ?? ''} wide>
+        {playing && <video src={playing.dataUrl} controls autoPlay className="aspect-video w-full rounded-lg bg-slate-900" />}
+      </Modal>
+    </Card>
   );
 }
 

@@ -467,6 +467,14 @@ function AssessManager({ teacher, myClasses }: { teacher: User; myClasses: Retur
                               ? <span>{sub.score}/{sub.maxScore} — <span className="text-slate-500 dark:text-slate-400">{sub.feedback || 'No feedback'}</span></span>
                               : '—'}
                           </TD>
+                          <TD className="max-w-xs">
+                            {sub?.file ? (
+                              <a href={sub.file.dataUrl} download={sub.file.name}
+                                className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300">
+                                📎 {sub.file.name}
+                              </a>
+                            ) : <span className="text-xs text-slate-400">—</span>}
+                          </TD>
                           <TD>{sub && <Button variant="ghost" className="h-8 px-2 text-xs" onClick={() => setGrading({ id: sub.id, score: sub.score ?? 0, feedback: sub.feedback })}>{t('manualGrading')}</Button>}</TD>
                         </TRow>
                       );

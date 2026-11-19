@@ -1,10 +1,18 @@
 /**
- * Virtual lab simulations: acid–base titration with a live pH curve,
- * an interactive pH scale, and a reaction-rate explorer. Each simulation
- * emits a data table of its results.
+ * Virtual Lab — a complete interactive chemistry lab.
+ *
+ * Six live simulations (titration, pH scale, reaction rate, gas laws,
+ * stoichiometry/limiting reagent, molarity & dilution) plus a lab-experiments
+ * hub that lists each experiment with its objective, procedure, safety notes
+ * and a suggested lab-report assignment. Each experiment links to its
+ * interactive simulation.
  */
 import { useMemo, useState } from 'react';
-import { Badge, Card, Input } from '../../components/ui';
+import { Badge, Button, Card, Input, Modal } from '../../components/ui';
+import { LAB_EXPERIMENTS, type LabExperiment } from '../../data/labExperiments';
+import { assessmentApi } from '../../services/api';
+
+type Sim = 'titration' | 'ph' | 'rate' | 'gas' | 'stoich' | 'molarity';
 
 /* --------------------------------- titration -------------------------------- */
 interface TitrationState { acid: 'HCl' | 'CH3COOH'; cA: number; vA: number; cB: number }
@@ -218,22 +226,237 @@ function RateSim() {
   );
 }
 
-export function VirtualLab() {
-  const [tab, setTab] = useState<'titration' | 'ph' | 'rate'>('titration');
+/* --------------------------------- gas laws ------------------------------- */
+function GasLawsSim() {
+  const [mode, setMode] = useState<'boyle' | 'charles' | 'combined'>('boyle');
+  const [n, setN] = useState(1); // moles
+  const R = 8.314;
+  // Boyle: P*V = const at fixed T. Charles: V/T = const at fixed P. Combined: P*V/T = const.
+  const [v, setV] = useState(24.6); // L
+  const [t, setT] = useState(298); // K
+  const [p, setP] = useState(101.3); // kPa
+
+  let result = '';
+  let formula = '';
+  if (mode === 'boyle') {
+    const k = p * v; // P*V constant
+    result = `P × V = ${k.toFixed(1)} kPa·L (constant). Halving the volume doubles the pressure.`;
+    formula = 'P₁V₁ = P₂V₂';
+  } else if (mode === 'charles') {
+    const k = v / t; // V/T constant
+    result = `V / T = ${k.toFixed(4)} L/K (constant). Doubling the absolute temperature doubles the volume.`;
+    formula = 'V₁/T₁ = V₂/T₂';
+  } else {
+    const k = (p * v) / t; // P*V/T constant
+    const p2 = (k * t) / v;
+    result = `P·V/T = ${k.toFixed(2)} kPa·L/K. At the new state the predicted pressure is ${p2.toFixed(1)} kPa.`;
+    formula = 'P₁V₁/T₁ = P₂V₂/T₂';
+  }
+
   return (
-    <Card title="Virtual Lab Simulations" subtitle="Titration, pH scale and reaction rate — interactive, with data tables.">
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {([['boyle', 'Boyle’s law (P·V)'], ['charles', 'Charles’s law (V/T)'], ['combined', 'Combined gas law']] as const).map(([key, label]) => (
+          <button key={key} type="button" onClick={() => setMode(key)}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${mode === key ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Volume (L): {v.toFixed(1)}</span>
+          <input type="range" min={1} max={50} step={0.5} value={v} onChange={(e) => setV(parseFloat(e.target.value))} className="w-full accent-brand-600" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Temperature (K): {t.toFixed(0)}</span>
+          <input type="range" min={200} max={600} step={5} value={t} onChange={(e) => setT(parseFloat(e.target.value))} className="w-full accent-brand-600" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Pressure (kPa): {p.toFixed(1)}</span>
+          <input type="range" min={10} max={500} step={5} value={p} onChange={(e) => setP(parseFloat(e.target.value))} className="w-full accent-brand-600" />
+        </label>
+      </div>
+      <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+        <p className="text-xs text-slate-400">Relationship</p>
+        <p className="text-lg font-mono font-semibold text-brand-600 dark:text-brand-300">{formula}</p>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{result}</p>
+        <p className="mt-2 text-xs text-slate-500">Ideal gas: PV = nRT, R = {R} J/(mol·K), n = {n} mol</p>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------- stoichiometry ------------------------------ */
+function StoichSim() {
+  const [balanced, setBalanced] = useState('2 H2 + O2 -> 2 H2O');
+  const [r1, setR1] = useState('4'); // moles H2
+  const [r2, setR2] = useState('3'); // moles O2
+  const coeffs = [2, 1, 2];
+  const molH2 = parseFloat(r1) || 0;
+  const molO2 = parseFloat(r2) || 0;
+  const needO2 = molH2 / 2;
+  const limiting = needO2 <= molO2 ? 'H2' : 'O2';
+  const water = Math.min(molH2, molO2 * 2);
+  return (
+    <div className="space-y-4">
+      <Input value={balanced} onChange={(e) => setBalanced(e.target.value)} className="font-mono" />
+      <p className="text-xs text-slate-500">Balanced equation: <span className="font-mono font-semibold text-brand-600 dark:text-brand-300">{balanced}</span> (coefficients 2 : 1 : 2)</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Moles of H₂ available</span>
+          <Input type="number" value={r1} onChange={(e) => setR1(e.target.value)} className="font-mono" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Moles of O₂ available</span>
+          <Input type="number" value={r2} onChange={(e) => setR2(e.target.value)} className="font-mono" />
+        </label>
+      </div>
+      <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+        <div className="flex justify-between"><span className="text-slate-500">O₂ required for the H₂</span><b className="font-mono">{needO2.toFixed(2)} mol</b></div>
+        <div className="mt-1 flex justify-between"><span className="text-slate-500">Limiting reagent</span><b className="text-rose-600">{limiting}</b></div>
+        <div className="mt-1 flex justify-between"><span className="text-slate-500">Theoretical yield H₂O</span><b className="font-mono text-brand-600 dark:text-brand-300">{water.toFixed(2)} mol</b></div>
+        <p className="mt-2 text-xs text-slate-500">The limiting reagent is fully consumed; the product is capped by it.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------- molarity --------------------------------- */
+function MolaritySim() {
+  const [targetM, setTargetM] = useState('0.5');
+  const [targetV, setTargetV] = useState('250'); // mL
+  const [stockM, setStockM] = useState('1.0');
+  const M = parseFloat(targetM) || 0;
+  const V = parseFloat(targetV) || 0;
+  const SM = parseFloat(stockM) || 0;
+  // mass of solute (NaCl, molar mass 58.44) for the target solution
+  const mass = (M * V / 1000) * 58.44;
+  // dilution: stock volume needed to make the target from a stock solution
+  const vStock = (M * V) / (SM * 1000);
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Target molarity (M)</span>
+          <Input type="number" value={targetM} onChange={(e) => setTargetM(e.target.value)} className="font-mono" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Target volume (mL)</span>
+          <Input type="number" value={targetV} onChange={(e) => setTargetV(e.target.value)} className="font-mono" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Stock molarity (M) — for dilution</span>
+          <Input type="number" value={stockM} onChange={(e) => setStockM(e.target.value)} className="font-mono" />
+        </label>
+      </div>
+      <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/40">
+        <p className="text-xs text-slate-400">Prepare from solid (NaCl, M = 58.44 g/mol)</p>
+        <p className="text-lg font-mono font-semibold text-brand-600 dark:text-brand-300">{mass.toFixed(2)} g in {V.toFixed(0)} mL</p>
+        <p className="mt-3 text-xs text-slate-400">Prepare by dilution (M₁V₁ = M₂V₂)</p>
+        <p className="text-lg font-mono font-semibold text-brand-600 dark:text-brand-300">{vStock.toFixed(2)} mL of {SM.toFixed(1)} M stock → dilute to {V.toFixed(0)} mL</p>
+        <p className="mt-2 text-xs text-slate-500">Molarity = moles solute ÷ litres of solution. Dilution keeps moles constant: M₁V₁ = M₂V₂.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------- lab experiments hub ------------------------- */
+function LabExperimentsHub({ onOpenSim }: { onOpenSim: (sim: Sim) => void }) {
+  const [open, setOpen] = useState<LabExperiment | null>(null);
+  return (
+    <div className="space-y-3">
+      {LAB_EXPERIMENTS.map((exp) => (
+        <div key={exp.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{exp.title}</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{exp.objective}</p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              <Badge tone="blue">{exp.category}</Badge>
+              <Badge tone={exp.difficulty === 'Introductory' ? 'green' : exp.difficulty === 'Intermediate' ? 'amber' : 'violet'}>{exp.difficulty}</Badge>
+              <Badge tone="slate">{exp.durationMin} min</Badge>
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Button className="h-8 px-3 text-xs" onClick={() => onOpenSim(exp.simulation)}>Open simulation</Button>
+            <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => setOpen(exp)}>Procedure & safety</Button>
+          </div>
+        </div>
+      ))}
+
+      <Modal open={!!open} onClose={() => setOpen(null)} title={open?.title ?? ''} wide>
+        {open && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Objective</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-300">{open.objective}</p>
+            </div>
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Procedure</h3>
+              <ol className="list-inside list-decimal space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                {open.procedure.map((p, i) => <li key={i}>{p}</li>)}
+              </ol>
+            </div>
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-rose-600 dark:text-rose-400">Safety</h3>
+              <ul className="list-inside list-disc space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                {open.safety.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+              <p className="text-xs text-amber-700">Lab report: "{open.reportTitle}" — submit it as an assignment.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
+              <Button onClick={() => { onOpenSim(open.simulation); setOpen(null); }}>Open simulation</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+export function VirtualLab({ onOpenVideos }: { onOpenVideos?: () => void }) {
+  const [tab, setTab] = useState<Sim | 'experiments'>('experiments');
+  void assessmentApi; // keep import used for future report linking
+
+  const SIM_TABS: [Sim | 'experiments', string][] = [
+    ['experiments', '🔬 Lab experiments'],
+    ['titration', 'Titration'],
+    ['ph', 'pH scale'],
+    ['rate', 'Reaction rate'],
+    ['gas', 'Gas laws'],
+    ['stoich', 'Stoichiometry'],
+    ['molarity', 'Molarity'],
+  ];
+
+  return (
+    <Card title="Virtual Lab" subtitle="Six interactive simulations and a full lab-experiment catalogue — with videos and lab-report assignments.">
       <div className="mb-4 flex flex-wrap gap-2">
-        {([['titration', 'Titration'], ['ph', 'pH scale'], ['rate', 'Reaction rate']] as const).map(([key, label]) => (
+        {SIM_TABS.map(([key, label]) => (
           <button key={key} type="button" onClick={() => setTab(key)}
             className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
               tab === key ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300'}`}>
             {label}
           </button>
         ))}
+        {onOpenVideos && (
+          <button type="button" onClick={onOpenVideos}
+            className="rounded-full px-3 py-1 text-sm font-medium bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-200">
+            🎬 Video library
+          </button>
+        )}
       </div>
+      {tab === 'experiments' && <LabExperimentsHub onOpenSim={(s) => setTab(s)} />}
       {tab === 'titration' && <TitrationSim />}
       {tab === 'ph' && <PhScale />}
       {tab === 'rate' && <RateSim />}
+      {tab === 'gas' && <GasLawsSim />}
+      {tab === 'stoich' && <StoichSim />}
+      {tab === 'molarity' && <MolaritySim />}
     </Card>
   );
 }

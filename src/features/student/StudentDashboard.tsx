@@ -254,7 +254,6 @@ function AssignmentsView({ student, courses, setView }: {
   student: User; courses: ReturnType<typeof courseApi.forClass>[]; setView: (v: string) => void;
 }) {
   const { t, toast } = useApp();
-  const [note, setNote] = useState('');
 
   const rows = courses.filter(Boolean).flatMap((c) => [
     ...assessmentApi.quizzesForCourse(c!.id).map((q) => ({ id: q.id, title: q.title, deadline: q.deadline, kind: 'quiz' as const, max: '—' })),
@@ -283,11 +282,8 @@ function AssignmentsView({ student, courses, setView }: {
                 </div>
               </div>
               {r.kind === 'assignment' && !sub && (
-                <div className="mt-2 flex gap-2">
-                  <Input placeholder="Submission note / file name" value={note} onChange={(e) => setNote(e.target.value)} className="h-9" />
-                  <Button className="h-9" onClick={() => { assessmentApi.submitAssignment(student.id, r.id, note || 'Uploaded file'); toast(t('submitted'), 'success'); setNote(''); }}>
-                    {t('submit')}
-                  </Button>
+                <div className="mt-2">
+                  <AssignmentSubmit student={student} assignmentId={r.id} onDone={() => toast(t('submitted'), 'success')} />
                 </div>
               )}
               {r.kind === 'quiz' && !sub && !overdue && (
@@ -305,6 +301,53 @@ function AssignmentsView({ student, courses, setView }: {
 // local helper: find a submission for a student+assessment
 function db_submission(studentId: string, assessmentId: string) {
   return assessmentApi.submissionsForAssessment(assessmentId).find((s) => s.studentId === studentId);
+}
+
+const ASSIGNMENT_MAX_MB = 8;
+
+/**
+ * AssignmentSubmit — students submit an assignment with an optional note and
+ * an uploaded file (stored as a base64 data URL, so the file is permanent and
+ * the teacher can download it).
+ */
+function AssignmentSubmit({ student, assignmentId, onDone }: { student: User; assignmentId: string; onDone: () => void }) {
+  const { toast } = useApp();
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (file && file.size > ASSIGNMENT_MAX_MB * 1024 * 1024) {
+      return toast(`File exceeds the ${ASSIGNMENT_MAX_MB} MB cap`, 'error');
+    }
+    setBusy(true);
+    let filePayload: import('../../types').AssignmentFile | undefined;
+    if (file) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result as string);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      filePayload = { name: file.name, dataUrl, sizeBytes: file.size, mimeType: file.type };
+    }
+    assessmentApi.submitAssignment(student.id, assignmentId, note || (file ? file.name : ''), filePayload);
+    setBusy(false);
+    setNote('');
+    setFile(null);
+    onDone();
+  };
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <Input placeholder="Submission note (optional)" value={note} onChange={(e) => setNote(e.target.value)} className="h-9" />
+      <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-xs" />
+        {file ? <span className="text-brand-600">{file.name}</span> : 'attach file'}
+      </label>
+      <Button className="h-9" onClick={submit} disabled={busy}>{busy ? '…' : 'Submit'}</Button>
+    </div>
+  );
 }
 
 /** Embedded quiz launcher (used from the assignments list). */

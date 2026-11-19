@@ -13,7 +13,7 @@ import { createDatabase as createDatabaseFresh } from '../data/seed';
 import { gradeAll, type GradeResult } from './grading';
 import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
 import type {
-  AuthResult, Role, User, Database,
+  AuthResult, Role, User, Database, Video, AssignmentFile,
 } from '../types';
 
 let logSeq = db.auditLogs.length;
@@ -692,18 +692,19 @@ export const assessmentApi = {
     persist('notifications');
     return graded;
   },
-  submitAssignment(studentId: string, assignmentId: string, note: string): void {
+  submitAssignment(studentId: string, assignmentId: string, note: string, file?: AssignmentFile): void {
     const asg = db.assignments.find((a) => a.id === assignmentId)!;
     const cls = db.classes.find((c) => db.courses.some((co) => co.id === asg.courseId && co.classId === c.id))!;
     const existing = db.submissions.find((s) => s.assessmentId === assignmentId && s.studentId === studentId);
     if (existing) {
       existing.answers = { note };
+      if (file) existing.file = file;
       existing.submittedAt = new Date().toISOString();
       existing.status = 'submitted';
     } else {
       db.submissions.push({
         id: `sub-${assignmentId}-${studentId}`, assessmentId: assignmentId, assessmentKind: 'assignment',
-        classId: cls.id, studentId, answers: { note }, score: null, maxScore: asg.maxScore, feedback: '',
+        classId: cls.id, studentId, answers: { note }, file, score: null, maxScore: asg.maxScore, feedback: '',
         submittedAt: new Date().toISOString(), status: 'submitted',
       });
     }
@@ -1140,6 +1141,56 @@ export const chemApi = {
 function createDatabaseFreshChem() {
   return createDatabaseFresh().chemData;
 }
+
+/* --------------------------------- videos ---------------------------------- */
+/**
+ * Video library — admins/teachers upload videos (stored as base64 data URLs
+ * in Supabase, so they are permanent and survive reloads). Videos can be
+ * linked to a course/lesson or kept as standalone library content.
+ */
+export const videosApi = {
+  list() {
+    return [...db.videos].sort((a, b) => b.at.localeCompare(a.at));
+  },
+  byId(id: string) {
+    return db.videos.find((v) => v.id === id);
+  },
+  forCourse(courseId: string) {
+    return db.videos.filter((v) => v.courseId === courseId);
+  },
+  forLesson(lessonId: string) {
+    return db.videos.filter((v) => v.lessonId === lessonId);
+  },
+  /** Upload (or update) a video. `dataUrl` is a base64 data URL from a File. */
+  save(input: { id?: string; title: string; description?: string; category?: string; courseId?: string; lessonId?: string; dataUrl: string; sizeBytes: number; mimeType: string }, actorId: string): Video {
+    const video: Video = {
+      id: input.id ?? `vid-${Date.now().toString(36)}`,
+      title: input.title,
+      description: input.description ?? '',
+      category: input.category ?? 'General',
+      courseId: input.courseId,
+      lessonId: input.lessonId,
+      dataUrl: input.dataUrl,
+      sizeBytes: input.sizeBytes,
+      mimeType: input.mimeType,
+      uploadedBy: actorId,
+      at: new Date().toISOString(),
+    };
+    const idx = db.videos.findIndex((v) => v.id === video.id);
+    if (idx >= 0) db.videos[idx] = video;
+    else db.videos.push(video);
+    audit(actorId, 'video.uploaded', video.title);
+    persist('videos');
+    return video;
+  },
+  /** Admin: delete a video. */
+  remove(id: string, actorId: string): void {
+    const v = db.videos.find((x) => x.id === id);
+    db.videos = db.videos.filter((x) => x.id !== id);
+    audit(actorId, 'video.deleted', v?.title ?? id);
+    persist('videos');
+  },
+};
 
 /* -------------------------------- settings/etc ------------------------------ */
 export const settingsApi = {

@@ -615,6 +615,7 @@ export function createDatabase(): Database {
       equations: chemData.equations.map((e) => ({ ...e })),
       constants: chemData.constants.map((c) => ({ ...c })),
     },
+    videos: [],
   };
 }
 

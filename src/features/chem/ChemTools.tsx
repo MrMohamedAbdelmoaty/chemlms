@@ -9,11 +9,12 @@ import { EquationBalancer } from './EquationBalancer';
 import { Calculators } from './Calculators';
 import { MoleculeViewer } from './MoleculeViewer';
 import { VirtualLab } from './VirtualLab';
+import { VideoLibrary } from './VideoLibrary';
 import { LabSafety } from './LabSafety';
 import { NotationPlayground } from './KaTeXText';
 import { Card } from '../../components/ui';
 
-type Tool = 'table' | 'notation' | 'balancer' | 'calcs' | 'molecules' | 'lab' | 'safety';
+type Tool = 'table' | 'notation' | 'balancer' | 'calcs' | 'molecules' | 'lab' | 'videos' | 'safety';
 
 const TABS: [Tool, string, string][] = [
   ['table', 'Periodic table', '🧪'],
@@ -22,6 +23,7 @@ const TABS: [Tool, string, string][] = [
   ['calcs', 'Calculators', '🧮'],
   ['molecules', 'Molecules', '🌐'],
   ['lab', 'Virtual lab', '🔬'],
+  ['videos', 'Videos', '🎬'],
   ['safety', 'Lab safety', '⚠️'],
 ];
 
@@ -58,7 +60,8 @@ export function ChemTools() {
       )}
       {tool === 'calcs' && <Calculators />}
       {tool === 'molecules' && <MoleculeViewer />}
-      {tool === 'lab' && <VirtualLab />}
+      {tool === 'lab' && <VirtualLab onOpenVideos={() => setTool('videos')} />}
+      {tool === 'videos' && <VideoLibrary />}
       {tool === 'safety' && <LabSafety />}
     </div>
   );

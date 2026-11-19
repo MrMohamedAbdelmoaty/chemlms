@@ -209,6 +209,8 @@ export interface Submission {
   classId: string;
   studentId: string;
   answers: Record<string, unknown>; // questionId -> student answer
+  /** Uploaded file for a file-type assignment (base64 data URL — permanent). */
+  file?: AssignmentFile;
   score: number | null; // null until auto/manual graded
   maxScore: number;
   feedback: string;
@@ -301,6 +303,37 @@ export interface SchoolSettings {
 }
 
 /**
+ * Uploaded video — stored as a base64 data URL inside the Supabase store so
+ * the file is permanent (survives reloads, never expires). Videos are uploaded
+ * by admins/teachers and can be linked to a course or lesson.
+ */
+export interface Video {
+  id: string;
+  title: string;
+  description: string;
+  category: string; // e.g. 'Titration', 'Lab safety', 'Stoichiometry'
+  courseId?: string;
+  lessonId?: string;
+  dataUrl: string; // base64 data URL — the actual video file content
+  sizeBytes: number;
+  mimeType: string;
+  uploadedBy: string;
+  at: string;
+}
+
+/**
+ * Uploaded assignment file — a student's submission for a file-type assignment.
+ * Stored as a base64 data URL so the uploaded file is permanent and the teacher
+ * can download/review it.
+ */
+export interface AssignmentFile {
+  name: string;
+  dataUrl: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+/**
  * Editable chemistry reference data — the admin can add / edit / delete
  * elements, preset equations and constants so the chemistry tools respond to
  * real platform data instead of a static dataset.
@@ -354,6 +387,8 @@ export interface Database {
   progress: Record<string, CourseProgressMap>;
   /** Editable chemistry reference data (elements, equations, constants) */
   chemData: ChemData;
+  /** Uploaded videos (base64 data URLs — permanent, in Supabase) */
+  videos: Video[];
 }
 
 /** Auth result returned by the mock auth service. */

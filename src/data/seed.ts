@@ -9,6 +9,32 @@
 import type {
   Database, Grade, Question, SchoolClass, User, BloomLevel,
 } from '../types';
+import { ELEMENTS } from './elements';
+
+/* ---------------------------------- chem data ------------------------------- */
+/**
+ * Editable chemistry reference data: the full periodic table (loaded from
+ * elements.ts) plus preset equations and constants. The admin can edit all
+ * of it from the Chemistry tools page.
+ */
+const chemData: Database['chemData'] = {
+  elements: ELEMENTS.map((e) => ({ ...e })),
+  equations: [
+    { id: 'eq-1', equation: 'Fe + O2 -> Fe2O3', category: 'Combustion', note: 'Iron rusting — 4Fe + 3O2 -> 2Fe2O3' },
+    { id: 'eq-2', equation: 'H2 + O2 -> H2O', category: 'Combustion', note: 'Hydrogen burns in oxygen.' },
+    { id: 'eq-3', equation: 'C3H8 + O2 -> CO2 + H2O', category: 'Combustion', note: 'Propane combustion.' },
+    { id: 'eq-4', equation: 'HCl + NaOH -> NaCl + H2O', category: 'Acid-base', note: 'Strong acid + strong base neutralisation.' },
+    { id: 'eq-5', equation: 'Zn + H2SO4 -> ZnSO4 + H2', category: 'Single displacement', note: 'Metal displacing hydrogen from acid.' },
+    { id: 'eq-6', equation: 'CH4 + O2 -> CO2 + H2O', category: 'Combustion', note: 'Methane combustion.' },
+  ],
+  constants: [
+    { id: 'c-1', name: 'R (gas constant)', value: 8.314, unit: 'J/mol·K' },
+    { id: 'c-2', name: 'NA (Avogadro)', value: 6.022e23, unit: 'mol⁻¹' },
+    { id: 'c-3', name: 'k (Boltzmann)', value: 1.381e-23, unit: 'J/K' },
+    { id: 'c-4', name: 'F (Faraday)', value: 96485, unit: 'C/mol' },
+    { id: 'c-5', name: 'STP molar volume', value: 22.4, unit: 'L/mol' },
+  ],
+};
 
 /* ----------------------------- deterministic RNG ----------------------------- */
 function mulberry32(seed: number) {
@@ -584,6 +610,11 @@ export function createDatabase(): Database {
     settings: { name: 'Sahara International School', logoText: 'SIS', primaryColor: 'indigo', defaultLanguage: 'en', theme: 'light' },
     parentStudentLinks: parentStudentLinks.map((l) => ({ ...l })),
     progress: JSON.parse(JSON.stringify(progress)),
+    chemData: {
+      elements: chemData.elements.map((e) => ({ ...e })),
+      equations: chemData.equations.map((e) => ({ ...e })),
+      constants: chemData.constants.map((c) => ({ ...c })),
+    },
   };
 }
 

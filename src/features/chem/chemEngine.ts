@@ -5,6 +5,20 @@
  * and the numeric question grader's formula validation.
  */
 import { ATOMIC_MASSES } from '../../data/elements';
+import { db } from '../../services/db';
+
+/**
+ * Element-symbol -> atomic mass map. Prefers the admin-editable chemistry
+ * data so platform edits to element masses feed the calculators; falls back
+ * to the built-in dataset.
+ */
+function atomicMasses(): Record<string, number> {
+  const editable = db.chemData.elements;
+  if (editable.length) {
+    return Object.fromEntries(editable.map((e) => [e.symbol, e.mass]));
+  }
+  return ATOMIC_MASSES;
+}
 
 /** Small exact-rational class so balancer maths never hits float drift. */
 class Fraction {
@@ -156,9 +170,10 @@ export function parseEquation(input: string): ParsedEquation {
 /** Molar mass (g/mol) of a formula string, e.g. "H2SO4" -> 98.08. */
 export function molarMass(formula: string): number {
   const m = parseCompound(formula);
+  const masses = atomicMasses();
   let total = 0;
   for (const [el, n] of m) {
-    const mass = ATOMIC_MASSES[el];
+    const mass = masses[el];
     if (mass == null) throw new Error(`Unknown element "${el}".`);
     total += mass * n;
   }

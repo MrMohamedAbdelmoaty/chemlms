@@ -8,8 +8,12 @@ import { useState } from 'react';
 import { balanceEquation } from './chemEngine';
 import { Badge, Button, Card, Input } from '../../components/ui';
 import { KaTeX } from './KaTeXText';
+import { db } from '../../services/db';
 
 const EXAMPLES = ['Fe + O2 -> Fe2O3', 'H2 + O2 -> H2O', 'C3H8 + O2 -> CO2 + H2O', 'Al + HCl -> AlCl3 + H2', 'KClO3 -> KCl + O2'];
+
+/** Admin-saved equations, shown as quick-pick chips alongside the examples. */
+const SAVED = db.chemData.equations.map((e) => e.equation);
 
 export function EquationBalancer({ initialEquation, onConsume }: { initialEquation?: string; onConsume?: () => void }) {
   const [eq, setEq] = useState(initialEquation ?? 'Fe + O2 -> Fe2O3');
@@ -40,6 +44,12 @@ export function EquationBalancer({ initialEquation, onConsume }: { initialEquati
         {EXAMPLES.map((ex) => (
           <button key={ex} type="button" onClick={() => { setEq(ex); setResult(null); }}
             className="rounded-full border border-slate-300 px-2.5 py-1 font-mono text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800">
+            {ex}
+          </button>
+        ))}
+        {SAVED.map((ex) => (
+          <button key={ex} type="button" onClick={() => { setEq(ex); setResult(null); }}
+            className="rounded-full border border-brand-300 bg-brand-50 px-2.5 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-700 dark:bg-brand-900/30 dark:text-brand-200">
             {ex}
           </button>
         ))}

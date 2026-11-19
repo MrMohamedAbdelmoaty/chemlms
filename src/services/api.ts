@@ -9,6 +9,7 @@
  */
 import { db, resetDatabase, persist } from './db';
 import { supabaseEnabled, saveCollection } from './supabase';
+import { createDatabase as createDatabaseFresh } from '../data/seed';
 import { gradeAll, type GradeResult } from './grading';
 import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
 import type {
@@ -253,6 +254,43 @@ export const usersApi = {
     }
     return u;
   },
+  /** Admin: change a user's role (e.g. promote a teacher to admin). */
+  setRole(id: string, role: Role, actorId: string): AuthResult {
+    const u = db.users.find((x) => x.id === id);
+    if (!u) return { ok: false, error: 'Account not found.' };
+    if (u.role === 'admin' && role !== 'admin') {
+      return { ok: false, error: 'The primary admin role cannot be removed.' };
+    }
+    u.role = role;
+    // Adjust role-scoped collections so a new student/teacher/parent starts clean.
+    if (role === 'student') { u.studentClassIds ??= []; }
+    if (role === 'teacher') { u.classIds ??= []; }
+    if (role === 'parent') { u.children ??= []; }
+    audit(actorId, 'user.role_changed', `${u.name}: ${u.role} -> ${role}`);
+    persist('users');
+    return { ok: true, user: u };
+  },
+  /** Admin: assign a student to (or remove from) a class's roster. */
+  assignClass(userId: string, classId: string, actorId: string): void {
+    const u = db.users.find((x) => x.id === userId);
+    const cls = db.classes.find((c) => c.id === classId);
+    if (!u || !cls) return;
+    if (u.studentClassIds) u.studentClassIds = [...new Set([...u.studentClassIds, classId])];
+    cls.studentIds = [...new Set([...cls.studentIds, userId])];
+    audit(actorId, 'user.assigned_class', `${u.name} -> ${cls.name}`);
+    persist('users');
+    persist('classes');
+  },
+  unassignClass(userId: string, classId: string, actorId: string): void {
+    const u = db.users.find((x) => x.id === userId);
+    const cls = db.classes.find((c) => c.id === classId);
+    if (!u || !cls) return;
+    if (u.studentClassIds) u.studentClassIds = u.studentClassIds.filter((c) => c !== classId);
+    cls.studentIds = cls.studentIds.filter((s) => s !== userId);
+    audit(actorId, 'user.unassigned_class', `${u.name} - ${cls.name}`);
+    persist('users');
+    persist('classes');
+  },
   setStatus(id: string, status: 'active' | 'suspended'): void {
     const u = db.users.find((x) => x.id === id);
     if (u) {
@@ -337,11 +375,54 @@ export const curriculumApi = {
     }
     persist('grades');
   },
+  removeGrade(id: string): void {
+    db.grades = db.grades.filter((g) => g.id !== id);
+    // Also drop classes that referenced the removed grade.
+    db.classes = db.classes.filter((c) => c.gradeId !== id);
+    audit('u-admin', 'grade.deleted', id);
+    persist('grades');
+    persist('classes');
+  },
   topics(curriculumId: string) {
     return db.topics.filter((t) => t.curriculumId === curriculumId);
   },
+  saveTopic(input: { id?: string; curriculumId: string; unit: string; name: string }): void {
+    if (input.id) {
+      const t = db.topics.find((x) => x.id === input.id);
+      if (t) Object.assign(t, { unit: input.unit, name: input.name });
+    } else {
+      db.topics.push({ id: `t-${Date.now().toString(36)}`, curriculumId: input.curriculumId, unit: input.unit, name: input.name });
+      audit('u-admin', 'topic.created', input.name);
+    }
+    persist('topics');
+  },
+  removeTopic(id: string): void {
+    db.topics = db.topics.filter((t) => t.id !== id);
+    db.learningOutcomes = db.learningOutcomes.filter((l) => l.topicId !== id);
+    audit('u-admin', 'topic.deleted', id);
+    persist('topics');
+    persist('learningOutcomes');
+  },
   outcomes(curriculumId: string) {
     return db.learningOutcomes.filter((l) => l.curriculumId === curriculumId);
+  },
+  saveOutcome(input: { id?: string; curriculumId: string; topicId: string; code: string; text: string }): void {
+    if (input.id) {
+      const l = db.learningOutcomes.find((x) => x.id === input.id);
+      if (l) Object.assign(l, { topicId: input.topicId, code: input.code, text: input.text });
+    } else {
+      db.learningOutcomes.push({
+        id: `lo-${Date.now().toString(36)}`, curriculumId: input.curriculumId,
+        topicId: input.topicId, code: input.code, text: input.text,
+      });
+      audit('u-admin', 'outcome.created', input.code);
+    }
+    persist('learningOutcomes');
+  },
+  removeOutcome(id: string): void {
+    db.learningOutcomes = db.learningOutcomes.filter((l) => l.id !== id);
+    audit('u-admin', 'outcome.deleted', id);
+    persist('learningOutcomes');
   },
 };
 
@@ -378,6 +459,27 @@ export const classApi = {
     const cls = classApi.byId(classId);
     return (cls?.studentIds ?? []).map((sid) => usersApi.byId(sid)!).filter(Boolean);
   },
+  /** Admin: assign/remove students in a class roster (also keeps user's classIds in sync). */
+  addStudent(classId: string, studentId: string, actorId: string): void {
+    const cls = db.classes.find((c) => c.id === classId);
+    const u = db.users.find((x) => x.id === studentId);
+    if (!cls || !u) return;
+    cls.studentIds = [...new Set([...cls.studentIds, studentId])];
+    if (u.studentClassIds) u.studentClassIds = [...new Set([...u.studentClassIds, classId])];
+    audit(actorId, 'class.student_added', `${u.name} -> ${cls.name}`);
+    persist('classes');
+    persist('users');
+  },
+  removeStudent(classId: string, studentId: string, actorId: string): void {
+    const cls = db.classes.find((c) => c.id === classId);
+    const u = db.users.find((x) => x.id === studentId);
+    if (!cls) return;
+    cls.studentIds = cls.studentIds.filter((s) => s !== studentId);
+    if (u && u.studentClassIds) u.studentClassIds = u.studentClassIds.filter((c) => c !== classId);
+    audit(actorId, 'class.student_removed', `${u?.name ?? studentId} - ${cls.name}`);
+    persist('classes');
+    persist('users');
+  },
 };
 
 /* --------------------------------- courses ---------------------------------- */
@@ -387,6 +489,36 @@ export const courseApi = {
   },
   forTeacher(teacherId: string) {
     return db.courses.filter((c) => c.teacherId === teacherId);
+  },
+  list() {
+    return [...db.courses];
+  },
+  byId(id: string) {
+    return db.courses.find((c) => c.id === id);
+  },
+  save(input: Partial<Database['courses'][number]> & { classId: string; title: string }): void {
+    if (input.id) {
+      const c = db.courses.find((x) => x.id === input.id);
+      if (c) Object.assign(c, input);
+    } else {
+      const cls = db.classes.find((c) => c.id === input.classId);
+      db.courses.push({
+        id: `cr-${Date.now().toString(36)}`, classId: input.classId,
+        curriculumId: input.curriculumId ?? cls?.curriculumId ?? db.curricula[0].id,
+        subject: input.subject ?? 'Chemistry', title: input.title,
+        description: input.description ?? '', teacherId: input.teacherId ?? cls?.teacherId ?? db.users.find((u) => u.role === 'teacher')!.id,
+        lessonIds: input.lessonIds ?? [],
+      });
+      audit('u-admin', 'course.created', input.title);
+    }
+    persist('courses');
+  },
+  remove(id: string): void {
+    db.courses = db.courses.filter((c) => c.id !== id);
+    db.lessons = db.lessons.filter((l) => l.courseId !== id);
+    audit('u-admin', 'course.deleted', id);
+    persist('courses');
+    persist('lessons');
   },
   lessons(courseId: string) {
     return db.lessons.filter((l) => l.courseId === courseId).sort((a, b) => a.order - b.order);
@@ -409,6 +541,14 @@ export const courseApi = {
       audit('u-admin', 'lesson.created', input.title);
     }
     persist('lessons');
+  },
+  removeLesson(id: string): void {
+    db.lessons = db.lessons.filter((l) => l.id !== id);
+    // Also detach from the course's lessonIds.
+    for (const c of db.courses) c.lessonIds = (c.lessonIds ?? []).filter((lid) => lid !== id);
+    audit('u-admin', 'lesson.deleted', id);
+    persist('lessons');
+    persist('courses');
   },
   progress(studentId: string, lessonId: string): number {
     return db.progress[studentId]?.[lessonId] ?? 0;
@@ -492,6 +632,24 @@ export const assessmentApi = {
       audit('u-admin', 'quiz.created', input.title);
     }
     persist('quizzes');
+  },
+  removeQuiz(id: string): void {
+    db.quizzes = db.quizzes.filter((q) => q.id !== id);
+    audit('u-admin', 'quiz.deleted', id);
+    persist('quizzes');
+  },
+  /** Admin: publish/unpublish a quiz (unpublished quizzes are hidden from students). */
+  setQuizPublished(id: string, published: boolean, actorId: string): void {
+    const q = db.quizzes.find((x) => x.id === id);
+    if (!q) return;
+    q.published = published;
+    audit(actorId, published ? 'quiz.published' : 'quiz.unpublished', q.title);
+    persist('quizzes');
+  },
+  removeAssignment(id: string): void {
+    db.assignments = db.assignments.filter((a) => a.id !== id);
+    audit('u-admin', 'assignment.deleted', id);
+    persist('assignments');
   },
   saveAssignment(input: Partial<Database['assignments'][number]> & { courseId: string; title: string }): void {
     if (input.id) {
@@ -605,6 +763,21 @@ export const gradebookApi = {
     const pct = rows.map((g) => ((g.score ?? 0) / g.maxScore) * 100);
     return Math.round(pct.reduce((a, b) => a + b, 0) / pct.length);
   },
+  /** Admin/teacher: set or clear a student's gradebook score for an assessment. */
+  setScore(entryId: string, score: number | null, actorId: string): void {
+    const e = db.gradebook.find((g) => g.id === entryId);
+    if (!e) return;
+    e.score = score;
+    const sub = db.submissions.find((s) => s.assessmentId === e.assessmentId && s.studentId === e.studentId);
+    if (sub) {
+      sub.score = score;
+      sub.status = score == null ? 'submitted' : 'graded';
+      sub.feedback = score == null ? sub.feedback : sub.feedback;
+    }
+    audit(actorId, 'gradebook.score_set', `${e.studentId}/${e.assessmentId}: ${score ?? 'cleared'}`);
+    persist('gradebook');
+    persist('submissions');
+  },
 };
 
 /* ----------------------------------- attendance ----------------------------- */
@@ -637,6 +810,21 @@ export const attendanceApi = {
     if (!rows.length) return 100;
     const ok = rows.filter((a) => a.status !== 'absent').length;
     return Math.round((ok / rows.length) * 100);
+  },
+  /** Admin: delete an attendance record (undo a wrong mark). */
+  remove(classId: string, studentId: string, date: string): void {
+    db.attendance = db.attendance.filter(
+      (a) => !(a.classId === classId && a.studentId === studentId && a.date === date),
+    );
+    audit('u-admin', 'attendance.deleted', `${classId} ${date} ${studentId}`);
+    persist('attendance');
+  },
+  /** Admin: delete a student's whole attendance history (e.g. data reset). */
+  removeStudentHistory(studentId: string): void {
+    const removed = db.attendance.filter((a) => a.studentId === studentId).length;
+    db.attendance = db.attendance.filter((a) => a.studentId !== studentId);
+    audit('u-admin', 'attendance.history_deleted', `${studentId} (${removed} records)`);
+    persist('attendance');
   },
 };
 
@@ -711,6 +899,22 @@ export const messageApi = {
   all(): Database['messages'] {
     return [...db.messages].sort((a, b) => b.at.localeCompare(a.at));
   },
+  /** Admin: delete a message from the platform (moderation action). */
+  remove(id: string, actorId: string): void {
+    const m = db.messages.find((x) => x.id === id);
+    db.messages = db.messages.filter((x) => x.id !== id);
+    audit(actorId, 'message.deleted', `${id} — ${m?.content.slice(0, 40) ?? ''}`);
+    persist('messages');
+  },
+  /** Admin: broadcast a message to one or more recipients. */
+  broadcast(fromId: string, recipientIds: string[], content: string): number {
+    for (const toId of recipientIds) {
+      db.messages.push({ id: `m${Date.now()}-${toId}`, fromId, toId, content, at: new Date().toISOString(), read: false });
+    }
+    audit(fromId, 'message.broadcast', `${recipientIds.length} recipients`);
+    persist('messages');
+    return recipientIds.length;
+  },
 };
 
 /* -------------------------------- announcements ----------------------------- */
@@ -737,6 +941,13 @@ export const announcementApi = {
     audit(byId, 'announcement.posted', input.title);
     persist('announcements');
   },
+  /** Admin: delete an announcement from the platform. */
+  remove(id: string, actorId: string): void {
+    const a = db.announcements.find((x) => x.id === id);
+    db.announcements = db.announcements.filter((x) => x.id !== id);
+    audit(actorId, 'announcement.deleted', a?.title ?? id);
+    persist('announcements');
+  },
 };
 
 /* --------------------------------- notifications ---------------------------- */
@@ -756,6 +967,17 @@ export const notificationApi = {
   },
   markAllRead(userId: string): void {
     for (const n of db.notifications) if (n.userId === userId) n.read = true;
+    persist('notifications');
+  },
+  /** Admin: delete a notification (e.g. an erroneous system notice). */
+  remove(id: string): void {
+    db.notifications = db.notifications.filter((n) => n.id !== id);
+    persist('notifications');
+  },
+  /** Admin: delete all notifications for a user. */
+  clearForUser(userId: string): void {
+    db.notifications = db.notifications.filter((n) => n.userId !== userId);
+    audit('u-admin', 'notifications.cleared', userId);
     persist('notifications');
   },
 };
@@ -820,6 +1042,105 @@ function mulberry(seed: number) {
   };
 }
 
+/* ---------------------------- chemistry reference data ---------------------- */
+/**
+ * Admin-managed chemistry data: periodic-table elements, preset equations and
+ * constants. These drive the chemistry tools (periodic table, balancer,
+ * calculators) so the admin can add or correct entries on the platform.
+ */
+export const chemApi = {
+  elements: () => db.chemData.elements,
+  saveElement(input: Partial<Database['chemData']['elements'][number]> & { symbol: string; name: string }) {
+    if (input.z != null) {
+      const existing = db.chemData.elements.find((e) => e.z === input.z);
+      if (existing) {
+        existing.symbol = input.symbol.toUpperCase();
+        existing.name = input.name;
+        if (input.mass != null) existing.mass = input.mass;
+        if (input.category) existing.category = input.category;
+        if (input.block) existing.block = input.block;
+        if (input.electronegativity != null) existing.electronegativity = input.electronegativity;
+        if (input.radiusPm != null) existing.radiusPm = input.radiusPm;
+        if (input.phase) existing.phase = input.phase;
+      } else {
+        db.chemData.elements.push({
+          z: input.z, symbol: input.symbol.toUpperCase(), name: input.name,
+          mass: input.mass ?? 0, category: input.category ?? 'nonmetal',
+          block: input.block ?? 'p', electronegativity: input.electronegativity ?? 0,
+          radiusPm: input.radiusPm ?? 100, phase: input.phase ?? 'solid',
+        });
+      }
+    } else {
+      const z = Math.max(0, ...db.chemData.elements.map((e) => e.z)) + 1;
+      db.chemData.elements.push({
+        z, symbol: input.symbol.toUpperCase(), name: input.name,
+        mass: input.mass ?? 0, category: input.category ?? 'nonmetal',
+        block: input.block ?? 'p', electronegativity: input.electronegativity ?? 0,
+        radiusPm: input.radiusPm ?? 100, phase: input.phase ?? 'solid',
+      });
+    }
+    audit('u-admin', 'chem.element_saved', input.symbol || input.name);
+    persist('chemData');
+  },
+  removeElement(z: number) {
+    db.chemData.elements = db.chemData.elements.filter((e) => e.z !== z);
+    audit('u-admin', 'chem.element_deleted', `Z=${z}`);
+    persist('chemData');
+  },
+  equations: () => db.chemData.equations,
+  saveEquation(input: { id?: string; equation: string; category?: string; note?: string }) {
+    if (input.id) {
+      const e = db.chemData.equations.find((x) => x.id === input.id);
+      if (e) Object.assign(e, input);
+    } else {
+      db.chemData.equations.push({
+        id: `eq-${Date.now().toString(36)}`, equation: input.equation,
+        category: input.category ?? 'General', note: input.note ?? '',
+      });
+      audit('u-admin', 'chem.equation_saved', input.equation);
+    }
+    persist('chemData');
+  },
+  removeEquation(id: string) {
+    db.chemData.equations = db.chemData.equations.filter((e) => e.id !== id);
+    audit('u-admin', 'chem.equation_deleted', id);
+    persist('chemData');
+  },
+  constants: () => db.chemData.constants,
+  saveConstant(input: { id?: string; name: string; value: number; unit?: string; note?: string }) {
+    if (input.id) {
+      const c = db.chemData.constants.find((x) => x.id === input.id);
+      if (c) Object.assign(c, input);
+    } else {
+      db.chemData.constants.push({
+        id: `c-${Date.now().toString(36)}`, name: input.name,
+        value: input.value, unit: input.unit ?? '', note: input.note ?? '',
+      });
+      audit('u-admin', 'chem.constant_saved', input.name);
+    }
+    persist('chemData');
+  },
+  removeConstant(id: string) {
+    db.chemData.constants = db.chemData.constants.filter((c) => c.id !== id);
+    audit('u-admin', 'chem.constant_deleted', id);
+    persist('chemData');
+  },
+  /** Reset chemistry data back to the seeded defaults (elements.ts + presets). */
+  resetChemData() {
+    const fresh = createDatabaseFreshChem();
+    db.chemData.elements = fresh.elements;
+    db.chemData.equations = fresh.equations;
+    db.chemData.constants = fresh.constants;
+    audit('u-admin', 'chem.reset', 'Chemistry data reset to defaults');
+    persist('chemData');
+  },
+};
+
+/** Fresh copy of the seeded chemistry data (used by the reset action). */
+function createDatabaseFreshChem() {
+  return createDatabaseFresh().chemData;
+}
+
 /* -------------------------------- settings/etc ------------------------------ */
 export const settingsApi = {
   get: () => db.settings,
@@ -833,7 +1154,7 @@ export const settingsApi = {
     resetDatabase();
     logSeq = db.auditLogs.length;
     // Re-persist the freshly seeded data to Supabase.
-    for (const key of ['users','curricula','grades','classes','topics','learningOutcomes','courses','lessons','questions','quizzes','assignments','submissions','gradebook','attendance','liveSessions','messages','announcements','notifications','settings']) {
+    for (const key of ['users','curricula','grades','classes','topics','learningOutcomes','courses','lessons','questions','quizzes','assignments','submissions','gradebook','attendance','liveSessions','messages','announcements','notifications','settings','chemData']) {
       persist(key as 'users');
     }
   },

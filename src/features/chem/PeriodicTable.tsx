@@ -7,6 +7,16 @@ import { useMemo, useState } from 'react';
 import { ELEMENTS, CATEGORY_META, electronConfiguration, type ChemElement, type ElementCategory } from '../../data/elements';
 import { Badge, Card, cn, Input, Modal, Select } from '../../components/ui';
 import { KaTeX } from './KaTeXText';
+import { db } from '../../services/db';
+
+/**
+ * Elements shown on the table. Prefers the admin-editable chemistry data
+ * (so platform edits take effect); falls back to the built-in dataset when
+ * the editable store is empty.
+ */
+const ELS: ChemElement[] = db.chemData.elements.length
+  ? (db.chemData.elements as unknown as ChemElement[])
+  : ELEMENTS;
 
 /** Map atomic number -> [row, col] in the 18-column standard IUPAC layout. */
 function position(z: number): [number, number] {
@@ -44,15 +54,15 @@ export function PeriodicTable({ onUseElement }: { onUseElement?: (symbol: string
   const [selected, setSelected] = useState<ChemElement | null>(null);
 
   const trendRange = useMemo(() => {
-    if (trend === 'en') { const vals = ELEMENTS.filter((e) => e.electronegativity > 0).map((e) => e.electronegativity); return [Math.min(...vals), Math.max(...vals)]; }
-    if (trend === 'mass') { const vals = ELEMENTS.map((e) => e.mass); return [Math.min(...vals), Math.max(...vals)]; }
-    if (trend === 'radius') { const vals = ELEMENTS.map((e) => e.radiusPm); return [Math.min(...vals), Math.max(...vals)]; }
+    if (trend === 'en') { const vals = ELS.filter((e) => e.electronegativity > 0).map((e) => e.electronegativity); return [Math.min(...vals), Math.max(...vals)]; }
+    if (trend === 'mass') { const vals = ELS.map((e) => e.mass); return [Math.min(...vals), Math.max(...vals)]; }
+    if (trend === 'radius') { const vals = ELS.map((e) => e.radiusPm); return [Math.min(...vals), Math.max(...vals)]; }
     return [0, 1];
   }, [trend]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ELEMENTS.filter((e) => {
+    return ELS.filter((e) => {
       if (filter !== 'all' && e.category !== filter) return false;
       if (!q) return true;
       return e.symbol.toLowerCase().includes(q) || e.name.toLowerCase().includes(q) || String(e.z) === q;
@@ -69,9 +79,9 @@ export function PeriodicTable({ onUseElement }: { onUseElement?: (symbol: string
 
   const grid = useMemo(() => {
     const map = new Map<number, ChemElement>();
-    ELEMENTS.forEach((e) => map.set(e.z, e));
+    ELS.forEach((e) => map.set(e.z, e));
     const rows: (ChemElement | null)[][] = Array.from({ length: 10 }, () => Array(18).fill(null));
-    for (const e of ELEMENTS) {
+    for (const e of ELS) {
       const [r, c] = position(e.z);
       rows[r - 1][c - 1] = e;
     }

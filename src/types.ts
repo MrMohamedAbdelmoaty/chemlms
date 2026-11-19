@@ -300,6 +300,32 @@ export interface SchoolSettings {
   theme: 'light' | 'dark';
 }
 
+/**
+ * Editable chemistry reference data — the admin can add / edit / delete
+ * elements, preset equations and constants so the chemistry tools respond to
+ * real platform data instead of a static dataset.
+ */
+export interface ChemEquationEntry {
+  id: string;
+  equation: string; // e.g. "Fe + O2 -> Fe2O3"
+  category: string; // e.g. "Combustion", "Acid-base"
+  note?: string;
+}
+
+export interface ChemConstantEntry {
+  id: string;
+  name: string; // e.g. "R (gas constant)"
+  value: number;
+  unit: string; // e.g. "J/mol·K"
+  note?: string;
+}
+
+export interface ChemData {
+  elements: { z: number; symbol: string; name: string; mass: number; category: string; block: 's' | 'p' | 'd' | 'f'; electronegativity: number; radiusPm: number; phase: 'solid' | 'liquid' | 'gas' }[];
+  equations: ChemEquationEntry[];
+  constants: ChemConstantEntry[];
+}
+
 /** In-memory "database" shape — the mock backend. */
 export interface Database {
   users: User[];
@@ -326,6 +352,8 @@ export interface Database {
   parentStudentLinks: { parentId: string; studentId: string }[];
   /** Lesson progress per student (demo-only convenience store) */
   progress: Record<string, CourseProgressMap>;
+  /** Editable chemistry reference data (elements, equations, constants) */
+  chemData: ChemData;
 }
 
 /** Auth result returned by the mock auth service. */

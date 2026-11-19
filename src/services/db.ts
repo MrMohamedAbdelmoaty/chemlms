@@ -19,7 +19,7 @@ const PERSISTED: (keyof Database)[] = [
   'users', 'curricula', 'grades', 'classes', 'topics', 'learningOutcomes',
   'courses', 'lessons', 'questions', 'quizzes', 'assignments', 'submissions',
   'gradebook', 'attendance', 'liveSessions', 'messages', 'announcements',
-  'notifications', 'auditLogs', 'settings',
+  'notifications', 'auditLogs', 'settings', 'chemData',
 ] as (keyof Database)[];
 
 /** Rebuild the database from seed (used by the "Reset demo data" action). */
@@ -52,6 +52,10 @@ export function persist(collection: keyof Database): void {
 
   if (collection === 'settings') {
     void scheduleWrite('settings', () => saveCollection('settings', [{ id: 'root', ...(db.settings as object) } as { id: string }]));
+    return;
+  }
+  if (collection === 'chemData') {
+    void scheduleWrite('chemData', () => saveCollection('chemData', [{ id: 'root', ...(db.chemData as object) } as { id: string }]));
     return;
   }
   if (collection === 'progress' || collection === 'parentStudentLinks') return;
@@ -93,13 +97,15 @@ export async function hydrateFromSupabase(): Promise<boolean> {
     const users = await fetchCollection('users');
     if (!users.length) {
       // First run: seed, then persist everything so it becomes permanent.
-      for (const key of PERSISTED) {
-        if (key === 'settings') {
-          await saveCollection('settings', [{ id: 'root', ...(db.settings as object) } as { id: string }]);
-        } else {
-          await saveCollection(key as string, db[key] as { id: string }[]);
-        }
+    for (const key of PERSISTED) {
+      if (key === 'settings') {
+        await saveCollection('settings', [{ id: 'root', ...(db.settings as object) } as { id: string }]);
+      } else if (key === 'chemData') {
+        await saveCollection('chemData', [{ id: 'root', ...(db.chemData as object) } as { id: string }]);
+      } else {
+        await saveCollection(key as string, db[key] as { id: string }[]);
       }
+    }
       await saveCollection('progress', Object.entries(db.progress).map(([id]) => ({ id })));
       console.info('[ChemLMS] Seeded demo data into Supabase.');
       return false; // nothing loaded (just seeded)
@@ -110,6 +116,8 @@ export async function hydrateFromSupabase(): Promise<boolean> {
       if (!rows.length) continue;
       if (key === 'settings') {
         (db.settings as unknown) = rows[0];
+      } else if (key === 'chemData') {
+        (db.chemData as unknown) = rows[0];
       } else {
         (db[key] as unknown) = rows as never;
       }

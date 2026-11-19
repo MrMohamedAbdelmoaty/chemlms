@@ -147,6 +147,28 @@ engine (periodic table, notation, balancer, calculators, molecule viewer,
 virtual labs, safety quiz), auto-grading, gradebook/attendance editing,
 messaging, announcements, reports export and the audit trail.
 
+## Deploy (free, no credit card)
+
+The site is a **pure static SPA** — build outputs to `dist/`. Recommended host:
+**Cloudflare Pages** (unlimited bandwidth, no sleep, no card, fast global CDN).
+
+### Option A — Cloudflare Pages (recommended)
+1. Push the repo to GitHub (see `scripts/push-to-github.mjs`).
+2. In [pages.cloudflare.com](https://pages.cloudflare.com): **Create project → Connect to Git repo**.
+3. Build settings:
+   - **Build command:** `npm run build`
+   - **Output directory:** `dist`
+4. Deploy. You'll get a `<project>.pages.dev` URL instantly (custom domain optional, free SSL).
+
+### Option B — Render (static site, never sleeps)
+1. In [render.com](https://render.com): **New → Static Site → Connect repo**.
+2. It auto-reads `render.yaml` (build `npm run build`, publish `./dist`, SPA rewrite to `/index.html`).
+3. Deploy — you get a `<app>.onrender.com` URL. Static sites on Render don't sleep.
+
+### Option C — Vercel / Netlify
+Same two settings: **Build `npm run build`, Output `dist`**. (Vercel's free
+Hobby tier is personal/non-commercial only.)
+
 ## Next steps (plugging in a real backend)
 1. Replace `src/services/db.ts` + `src/services/api.ts` bodies with `fetch()`
    calls to the REST API; the domain models in `src/types.ts` already define

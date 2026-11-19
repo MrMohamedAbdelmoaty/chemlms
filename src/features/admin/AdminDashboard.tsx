@@ -1222,11 +1222,15 @@ function VideosView() {
         ))}
         {videos.length === 0 && <EmptyState>No videos yet — use "+ Upload video" to add one.</EmptyState>}
       </div>
-      <Modal open={uploadOpen} onClose={() => setUploadOpen(false)} title="Upload video" wide>
-        <UploadForm onDone={() => { setUploadOpen(false); refresh(); }} />
-      </Modal>
+      {uploadOpen && (
+        <UploadForm
+          courses={courseApi.list()}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={refresh}
+        />
+      )}
       <Modal open={!!playing} onClose={() => setPlaying(null)} title={playing?.title ?? ''} wide>
-        {playing && <video src={playing.dataUrl} controls autoPlay className="aspect-video w-full rounded-lg bg-slate-900" />}
+        {playing && <video src={videosApi.playableUrl(playing)} controls autoPlay className="aspect-video w-full rounded-lg bg-slate-900" />}
       </Modal>
     </Card>
   );

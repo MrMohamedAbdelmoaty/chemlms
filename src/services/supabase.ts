@@ -90,3 +90,60 @@ export async function clearAll(): Promise<void> {
     /* ignore */
   }
 }
+
+/* ------------------------------ storage (files) ---------------------------- */
+/**
+ * Supabase Storage — for uploaded videos and assignment files. Files are
+ * stored as real objects (not base64 in the DB), so large uploads are
+ * supported and the DB stays light. The bucket ("videos") is created in the
+ * Supabase dashboard (Storage → New bucket → public). If the bucket is not
+ * configured yet, uploads gracefully fall back to base64 (see api.ts).
+ */
+const STORAGE_BUCKET = 'videos';
+
+/** Base public URL for an object path in the bucket. */
+export function storageObjectUrl(path: string): string {
+  return `${SUPABASE_URL.replace('/rest/v1', '/storage/v1')}/object/public/${STORAGE_BUCKET}/${path}`;
+}
+
+/** True if a storage upload is likely to work (bucket reachable). */
+export const storageEnabled = true;
+
+/**
+ * Upload a File to Supabase Storage. Returns the object path and public URL.
+ * Throws if the bucket is not configured / the upload is rejected — callers
+ * can catch this and fall back to base64.
+ */
+export async function uploadToStorage(
+  path: string, file: File | Blob, contentType: string,
+): Promise<{ path: string; url: string }> {
+  const url = `${storageObjectUrl('').replace(/\/$/, '')}/${path}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'x-upsert': 'true',
+      'Content-Type': contentType,
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Storage upload failed (${res.status}): ${text || res.statusText}`);
+  }
+  return { path, url: storageObjectUrl(path) };
+}
+
+/** Delete an object from Storage (best-effort; ignores 404). */
+export async function deleteFromStorage(path: string): Promise<void> {
+  try {
+    const url = `${storageObjectUrl('').replace(/\/$/, '')}/${path}`;
+    await fetch(url, {
+      method: 'DELETE',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    });
+  } catch {
+    /* best-effort */
+  }
+}

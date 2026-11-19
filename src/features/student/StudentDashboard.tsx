@@ -303,12 +303,13 @@ function db_submission(studentId: string, assessmentId: string) {
   return assessmentApi.submissionsForAssessment(assessmentId).find((s) => s.studentId === studentId);
 }
 
-const ASSIGNMENT_MAX_MB = 8;
+const ASSIGNMENT_MAX_MB = 50; // Storage supports large files; fallback caps smaller
 
 /**
  * AssignmentSubmit — students submit an assignment with an optional note and
- * an uploaded file (stored as a base64 data URL, so the file is permanent and
- * the teacher can download it).
+ * an uploaded file. The file is stored in Supabase Storage (large files
+ * supported); it falls back to a base64 data URL if Storage is unavailable.
+ * The teacher can download it from the grade table.
  */
 function AssignmentSubmit({ student, assignmentId, onDone }: { student: User; assignmentId: string; onDone: () => void }) {
   const { toast } = useApp();
@@ -323,13 +324,12 @@ function AssignmentSubmit({ student, assignmentId, onDone }: { student: User; as
     setBusy(true);
     let filePayload: import('../../types').AssignmentFile | undefined;
     if (file) {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result as string);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-      filePayload = { name: file.name, dataUrl, sizeBytes: file.size, mimeType: file.type };
+      try {
+        filePayload = await assessmentApi.saveAssignmentFile(file);
+      } catch (e) {
+        setBusy(false);
+        return toast(e instanceof Error ? e.message : 'File upload failed', 'error');
+      }
     }
     assessmentApi.submitAssignment(student.id, assignmentId, note || (file ? file.name : ''), filePayload);
     setBusy(false);

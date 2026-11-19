@@ -469,7 +469,7 @@ function AssessManager({ teacher, myClasses }: { teacher: User; myClasses: Retur
                           </TD>
                           <TD className="max-w-xs">
                             {sub?.file ? (
-                              <a href={sub.file.dataUrl} download={sub.file.name}
+                              <a href={assessmentApi.fileUrl(sub.file)} download={sub.file.name}
                                 className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300">
                                 📎 {sub.file.name}
                               </a>

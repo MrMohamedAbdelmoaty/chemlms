@@ -8,7 +8,7 @@
  * with REST calls without touching any component.
  */
 import { db, resetDatabase, persist } from './db';
-import { supabaseEnabled, saveCollection } from './supabase';
+import { supabaseEnabled, saveCollection, uploadToStorage, deleteFromStorage } from './supabase';
 import { createDatabase as createDatabaseFresh } from '../data/seed';
 import { gradeAll, type GradeResult } from './grading';
 import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
@@ -24,6 +24,16 @@ function audit(actorId: string, action: string, detail: string) {
   });
   // Persist the audit trail durably on every logged action.
   persist('auditLogs');
+}
+
+/** Read a File into a base64 data URL (fallback when Storage is unavailable). */
+function readAsDataUrl(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 /** Generate a short numeric confirmation code (demo-grade "verification"). */
@@ -713,6 +723,31 @@ export const assessmentApi = {
     persist('submissions');
     persist('notifications');
   },
+  /**
+   * Upload an assignment file to Supabase Storage (with base64 fallback).
+   * Returns the AssignmentFile payload ready for submitAssignment.
+   */
+  async saveAssignmentFile(file: File): Promise<AssignmentFile> {
+    try {
+      const path = `assignments/${Date.now().toString(36)}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { path: storedPath, url } = await uploadToStorage(path, file, file.type || 'application/octet-stream');
+      return {
+        name: file.name, storagePath: storedPath, storageUrl: url,
+        storageProvider: 'storage', sizeBytes: file.size,
+        mimeType: file.type || 'application/octet-stream',
+      };
+    } catch {
+      const dataUrl = await readAsDataUrl(file);
+      return {
+        name: file.name, dataUrl, storageProvider: 'base64',
+        sizeBytes: file.size, mimeType: file.type || 'application/octet-stream',
+      };
+    }
+  },
+  /** Resolve the downloadable URL for an assignment file (storage preferred). */
+  fileUrl(f: AssignmentFile): string {
+    return f.storageUrl ?? f.dataUrl ?? '';
+  },
   submissionsForAssessment(assessmentId: string) {
     return db.submissions.filter((s) => s.assessmentId === assessmentId);
   },
@@ -1161,8 +1196,18 @@ export const videosApi = {
   forLesson(lessonId: string) {
     return db.videos.filter((v) => v.lessonId === lessonId);
   },
-  /** Upload (or update) a video. `dataUrl` is a base64 data URL from a File. */
-  save(input: { id?: string; title: string; description?: string; category?: string; courseId?: string; lessonId?: string; dataUrl: string; sizeBytes: number; mimeType: string }, actorId: string): Video {
+  /**
+   * Upload (or update) a video. The file is preferably stored in Supabase
+   * Storage (`storagePath`/`storageUrl`); if Storage is unavailable it falls
+   * back to a base64 `dataUrl`. `storageProvider` records which was used.
+   */
+  save(input: {
+    id?: string; title: string; description?: string; category?: string;
+    courseId?: string; lessonId?: string;
+    storagePath?: string; storageUrl?: string; dataUrl?: string;
+    storageProvider: 'storage' | 'base64';
+    sizeBytes: number; mimeType: string;
+  }, actorId: string): Video {
     const video: Video = {
       id: input.id ?? `vid-${Date.now().toString(36)}`,
       title: input.title,
@@ -1170,7 +1215,10 @@ export const videosApi = {
       category: input.category ?? 'General',
       courseId: input.courseId,
       lessonId: input.lessonId,
+      storagePath: input.storagePath,
+      storageUrl: input.storageUrl,
       dataUrl: input.dataUrl,
+      storageProvider: input.storageProvider,
       sizeBytes: input.sizeBytes,
       mimeType: input.mimeType,
       uploadedBy: actorId,
@@ -1183,10 +1231,18 @@ export const videosApi = {
     persist('videos');
     return video;
   },
-  /** Admin: delete a video. */
+  /** Resolve the playable URL for a video (storage preferred, base64 fallback). */
+  playableUrl(v: Video): string {
+    return v.storageUrl ?? v.dataUrl ?? '';
+  },
+  /** Admin: delete a video and its stored object. */
   remove(id: string, actorId: string): void {
     const v = db.videos.find((x) => x.id === id);
     db.videos = db.videos.filter((x) => x.id !== id);
+    if (v?.storagePath) {
+      // Best-effort object cleanup (fire-and-forget).
+      void deleteFromStorage(v.storagePath).catch(() => {});
+    }
     audit(actorId, 'video.deleted', v?.title ?? id);
     persist('videos');
   },

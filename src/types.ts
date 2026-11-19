@@ -314,7 +314,14 @@ export interface Video {
   category: string; // e.g. 'Titration', 'Lab safety', 'Stoichiometry'
   courseId?: string;
   lessonId?: string;
-  dataUrl: string; // base64 data URL — the actual video file content
+  /** Supabase Storage object path (primary — supports large files). */
+  storagePath?: string;
+  /** Public URL of the stored object (derived from storagePath). */
+  storageUrl?: string;
+  /** Base64 data URL — fallback when Storage is not configured. */
+  dataUrl?: string;
+  /** Which storage mechanism holds the file. */
+  storageProvider: 'storage' | 'base64';
   sizeBytes: number;
   mimeType: string;
   uploadedBy: string;
@@ -328,7 +335,14 @@ export interface Video {
  */
 export interface AssignmentFile {
   name: string;
-  dataUrl: string;
+  /** Supabase Storage object path (primary — supports large files). */
+  storagePath?: string;
+  /** Public URL of the stored object (derived from storagePath). */
+  storageUrl?: string;
+  /** Base64 data URL — fallback when Storage is not configured. */
+  dataUrl?: string;
+  /** Which storage mechanism holds the file. */
+  storageProvider: 'storage' | 'base64';
   sizeBytes: number;
   mimeType: string;
 }

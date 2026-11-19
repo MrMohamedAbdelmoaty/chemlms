@@ -155,7 +155,7 @@ const H_STUDENT = 'pbkdf2$100000$7LSqZqhUXFCXIjj2R9njYw==$x1cQviHZCkYRCKo4oVTI1b
 const H_PARENT = 'pbkdf2$100000$aet7QBvEd46aKyPfOqt31Q==$n1ZkzYpuZFQomAITXDIP7UzYbMTwt4QyyTKZRLGr10M=';
 
 const users: User[] = [
-  { id: 'u-admin', name: 'MR. MOHAMED ABDELMOATY', email: 'admin@chemlms.edu', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', passwordHash: H_ADMIN, phone: '+201000000001', emailConfirmed: true, phoneConfirmed: true },
+  { id: 'u-admin', name: 'MR. MOHAMED ABDELMOATY', email: 'mohamedabdelmoaty84@gmail.com', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', passwordHash: H_ADMIN, phone: '00966549837701', emailConfirmed: true, phoneConfirmed: true },
   { id: 'u-t1', name: 'Dr. Lena Hassan', email: 'lena@chemlms.edu', role: 'teacher', avatarColor: AVATARS[0], status: 'active', passwordHash: H_TEACHER, classIds: ['c1', 'c3'], phone: '+201000000002', emailConfirmed: true, phoneConfirmed: true },
   { id: 'u-t2', name: 'Mr. Omar Khalil', email: 'omar@chemlms.edu', role: 'teacher', avatarColor: AVATARS[1], status: 'active', passwordHash: H_TEACHER, classIds: ['c2', 'c4'], phone: '+201000000003', emailConfirmed: true, phoneConfirmed: true },
   { id: 'u-t3', name: 'Ms. Sara Ibrahim', email: 'sara@chemlms.edu', role: 'teacher', avatarColor: AVATARS[2], status: 'active', passwordHash: H_TEACHER, classIds: ['c5'], phone: '+201000000004', emailConfirmed: true, phoneConfirmed: true },

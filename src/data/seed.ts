@@ -155,10 +155,10 @@ const H_STUDENT = 'pbkdf2$100000$7LSqZqhUXFCXIjj2R9njYw==$x1cQviHZCkYRCKo4oVTI1b
 const H_PARENT = 'pbkdf2$100000$aet7QBvEd46aKyPfOqt31Q==$n1ZkzYpuZFQomAITXDIP7UzYbMTwt4QyyTKZRLGr10M=';
 
 const users: User[] = [
-  { id: 'u-admin', name: 'Dr. Nabil El-Sayed', email: 'admin@chemlms.edu', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', passwordHash: H_ADMIN },
-  { id: 'u-t1', name: 'Dr. Lena Hassan', email: 'lena@chemlms.edu', role: 'teacher', avatarColor: AVATARS[0], status: 'active', passwordHash: H_TEACHER, classIds: ['c1', 'c3'] },
-  { id: 'u-t2', name: 'Mr. Omar Khalil', email: 'omar@chemlms.edu', role: 'teacher', avatarColor: AVATARS[1], status: 'active', passwordHash: H_TEACHER, classIds: ['c2', 'c4'] },
-  { id: 'u-t3', name: 'Ms. Sara Ibrahim', email: 'sara@chemlms.edu', role: 'teacher', avatarColor: AVATARS[2], status: 'active', passwordHash: H_TEACHER, classIds: ['c5'] },
+  { id: 'u-admin', name: 'Dr. Nabil El-Sayed', email: 'admin@chemlms.edu', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', passwordHash: H_ADMIN, phone: '+201000000001', emailConfirmed: true, phoneConfirmed: true },
+  { id: 'u-t1', name: 'Dr. Lena Hassan', email: 'lena@chemlms.edu', role: 'teacher', avatarColor: AVATARS[0], status: 'active', passwordHash: H_TEACHER, classIds: ['c1', 'c3'], phone: '+201000000002', emailConfirmed: true, phoneConfirmed: true },
+  { id: 'u-t2', name: 'Mr. Omar Khalil', email: 'omar@chemlms.edu', role: 'teacher', avatarColor: AVATARS[1], status: 'active', passwordHash: H_TEACHER, classIds: ['c2', 'c4'], phone: '+201000000003', emailConfirmed: true, phoneConfirmed: true },
+  { id: 'u-t3', name: 'Ms. Sara Ibrahim', email: 'sara@chemlms.edu', role: 'teacher', avatarColor: AVATARS[2], status: 'active', passwordHash: H_TEACHER, classIds: ['c5'], phone: '+201000000004', emailConfirmed: true, phoneConfirmed: true },
 ];
 
 // Classes: 2 per curriculum where possible. Students s1..s20 mapped below.
@@ -180,7 +180,7 @@ for (let i = 0; i < STUDENT_NAMES.length; i++) {
   users.push({
     id: `s${i + 1}`, name: STUDENT_NAMES[i], email: `student${i + 1}@chemlms.edu`,
     role: 'student', avatarColor: AVATARS[i % AVATARS.length], status: 'active',
-    passwordHash: H_STUDENT, studentClassIds: [classOf[0]],
+    passwordHash: H_STUDENT, phone: `+201000000${String(i + 11).padStart(2, '0')}`, emailConfirmed: true, phoneConfirmed: true, studentClassIds: [classOf[0]],
   });
 }
 
@@ -192,7 +192,7 @@ for (let i = 0; i < PARENT_NAMES.length; i++) {
   users.push({
     id: pid, name, email: `parent${i + 1}@chemlms.edu`, role: 'parent',
     avatarColor: AVATARS[(i + 3) % AVATARS.length], status: 'active',
-    passwordHash: H_PARENT, children: childIds.map((c) => `s${c}`),
+    passwordHash: H_PARENT, phone: `+201000001${String(i + 11).padStart(2, '0')}`, emailConfirmed: true, phoneConfirmed: true, children: childIds.map((c) => `s${c}`),
   });
   for (const c of childIds) parentStudentLinks.push({ parentId: pid, studentId: `s${c}` });
 }

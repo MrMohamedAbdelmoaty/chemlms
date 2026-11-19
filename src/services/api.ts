@@ -10,7 +10,7 @@
 import { db, resetDatabase, persist } from './db';
 import { supabaseEnabled, saveCollection } from './supabase';
 import { gradeAll, type GradeResult } from './grading';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
 import type {
   AuthResult, Role, User, Database,
 } from '../types';
@@ -25,16 +25,26 @@ function audit(actorId: string, action: string, detail: string) {
   persist('auditLogs');
 }
 
+/** Generate a short numeric confirmation code (demo-grade "verification"). */
+function genToken(len = 6): string {
+  let s = '';
+  for (let i = 0; i < len; i++) s += Math.floor(Math.random() * 10);
+  return s;
+}
+
 /* ------------------------------------ auth ----------------------------------- */
 /**
- * Authenticate by email + password. The supplied password is verified against
- * the stored PBKDF2 hash (never compared in plain text). Returns the user on
- * success, or an error otherwise.
+ * Authenticate by email **or** phone + password. The supplied password is
+ * verified against the stored PBKDF2 hash (never compared in plain text).
+ * Returns the user on success, or an error otherwise.
  */
-export async function login(email: string, password: string): Promise<AuthResult> {
-  const user = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+export async function login(identifier: string, password: string): Promise<AuthResult> {
+  const id = identifier.trim().toLowerCase();
+  const user = db.users.find(
+    (u) => u.email.toLowerCase() === id || (u.phone && normalizePhone(u.phone) === normalizePhone(id)),
+  );
   if (!user) {
-    return { ok: false, error: 'No account found with that email.' };
+    return { ok: false, error: 'No account found with that email or phone number.' };
   }
   if (user.status === 'suspended') {
     return { ok: false, error: 'This account has been suspended. Contact an administrator.' };
@@ -43,28 +53,55 @@ export async function login(email: string, password: string): Promise<AuthResult
   if (!valid) {
     return { ok: false, error: 'Incorrect password. Please try again.' };
   }
-  audit(user.id, 'login', `${user.name} signed in as ${user.role}`);
+  audit(user.id, 'login', `${user.name} signed in as ${user.role} (${user.email})`);
   return { ok: true, user };
 }
 
 /**
- * Register a brand-new account. Password is hashed before storage — the plain
- * text never touches the database. Available for the demo; a real backend
- * would gate registration (email verification / admin approval).
+ * Register a brand-new account by email **or** phone + password. The
+ * password is hashed before storage; the plain text never touches the DB.
+ * New accounts start unconfirmed; a confirmation code is generated and
+ * returned (in a real backend this would be emailed/SMS'd).
  */
 export async function register(input: {
-  name: string; email: string; password: string; role?: Role;
-}): Promise<AuthResult> {
-  const email = input.email.trim().toLowerCase();
-  if (db.users.some((u) => u.email.toLowerCase() === email)) {
+  name: string; password: string; role?: Role;
+  email?: string; phone?: string; identifier?: string;
+}): Promise<AuthResult & { confirmationToken?: string; confirmationTarget?: string }> {
+  const role: Role = input.role ?? 'student';
+  let email = (input.email ?? '').trim().toLowerCase();
+  let phone = input.phone ? normalizePhone(input.phone) : '';
+  // Fall back to identifier if email/phone weren't provided explicitly.
+  if (!email && !phone && input.identifier) {
+    if (input.identifier.includes('@')) { email = input.identifier.trim().toLowerCase(); }
+    else { phone = normalizePhone(input.identifier); }
+  }
+
+  // Require at least one identifier.
+  if (!email && !phone) {
+    return { ok: false, error: 'Provide an email or phone number.' };
+  }
+  // Check uniqueness.
+  if (email && db.users.some((u) => u.email.toLowerCase() === email)) {
     return { ok: false, error: 'An account with this email already exists.' };
   }
+  if (phone && db.users.some((u) => u.phone && normalizePhone(u.phone) === phone)) {
+    return { ok: false, error: 'An account with this phone number already exists.' };
+  }
+
   const passwordHash = await hashPassword(input.password);
-  const role: Role = input.role ?? 'student';
   const id = `u-${Date.now().toString(36)}`;
+
+  // Generate a confirmation token for the provided identifier.
+  const token = genToken();
+  const target = email ? email : phone;
   const user: User = {
-    id, name: input.name.trim(), email, role,
+    id, name: input.name.trim(), email: email || `unconfirmed-${id}@local`, role,
     avatarColor: 'bg-indigo-500', status: 'active', passwordHash,
+    phone: phone || undefined,
+    emailConfirmed: !!email ? false : true, // no email => nothing to confirm
+    phoneConfirmed: !!phone ? false : true,
+    emailToken: email ? token : undefined,
+    phoneToken: phone ? token : undefined,
     children: role === 'parent' ? [] : undefined,
     guardians: role === 'student' ? [] : undefined,
     classIds: role === 'teacher' ? [] : undefined,
@@ -73,7 +110,63 @@ export async function register(input: {
   db.users.push(user);
   audit(id, 'user.registered', `${user.name} (${user.role}) — self-registration`);
   persist('users');
-  return { ok: true, user };
+  return { ok: true, user, confirmationToken: token, confirmationTarget: target };
+}
+
+/**
+ * Confirm an account using the token issued at registration. Marks the
+ * matching email/phone as confirmed and clears the token.
+ */
+export function confirmAccount(userId: string, token: string): AuthResult {
+  const u = db.users.find((x) => x.id === userId);
+  if (!u) return { ok: false, error: 'Account not found.' };
+  if (u.emailToken && u.emailToken === token) {
+    u.emailConfirmed = true;
+    u.emailToken = undefined;
+    audit(userId, 'email.confirmed', `Confirmed ${u.email}`);
+    persist('users');
+    return { ok: true, user: u };
+  }
+  if (u.phoneToken && u.phoneToken === token) {
+    u.phoneConfirmed = true;
+    u.phoneToken = undefined;
+    audit(userId, 'phone.confirmed', `Confirmed ${u.phone}`);
+    persist('users');
+    return { ok: true, user: u };
+  }
+  return { ok: false, error: 'Invalid or expired confirmation token.' };
+}
+
+/**
+ * Change a user's own password. The current password must verify before the
+ * new one (hashed) is stored. Returns a clear error on mismatch.
+ */
+export async function changePassword(
+  userId: string, currentPassword: string, newPassword: string,
+): Promise<AuthResult> {
+  const u = db.users.find((x) => x.id === userId);
+  if (!u) return { ok: false, error: 'Account not found.' };
+  const valid = await verifyPassword(currentPassword, u.passwordHash);
+  if (!valid) return { ok: false, error: 'Current password is incorrect.' };
+  if (newPassword.length < 6) return { ok: false, error: 'New password must be at least 6 characters.' };
+  u.passwordHash = await hashPassword(newPassword);
+  audit(userId, 'password.changed', 'Password updated by user');
+  persist('users');
+  return { ok: true, user: u };
+}
+
+/**
+ * Admin-initiated password reset. Sets a new (hashed) password directly.
+ * In a real backend this would email a one-time reset link.
+ */
+export async function adminResetPassword(userId: string, newPassword: string, actorId: string): Promise<AuthResult> {
+  const u = db.users.find((x) => x.id === userId);
+  if (!u) return { ok: false, error: 'Account not found.' };
+  if (newPassword.length < 6) return { ok: false, error: 'Password must be at least 6 characters.' };
+  u.passwordHash = await hashPassword(newPassword);
+  audit(actorId, 'password.admin_reset', `Reset password for ${u.name} (${u.email})`);
+  persist('users');
+  return { ok: true, user: u };
 }
 
 /** Seed account credentials (kept for the admin to sign in; shown nowhere in the UI). */
@@ -91,14 +184,18 @@ export const usersApi = {
   byId(id: string): User | undefined {
     return db.users.find((u) => u.id === id);
   },
-  async create(input: Partial<User> & { name: string; email: string; role: Role; password?: string }): Promise<User> {
+  async create(input: Partial<User> & { name: string; email: string; role: Role; password?: string; phone?: string }): Promise<User> {
     const id = `u-${Date.now().toString(36)}`;
     // Hash the provided password; default to a random placeholder if omitted.
     const plain = input.password && input.password.length >= 4 ? input.password : `tmp-${id}`;
     const passwordHash = await hashPassword(plain);
+    const phone = input.phone ? normalizePhone(input.phone) : undefined;
     const user: User = {
       id, name: input.name, email: input.email, role: input.role,
       avatarColor: 'bg-indigo-500', status: 'active', passwordHash,
+      phone,
+      emailConfirmed: !!input.emailConfirmed,
+      phoneConfirmed: !!phone && !!input.phoneConfirmed,
       children: input.role === 'parent' ? input.children ?? [] : undefined,
       guardians: input.role === 'student' ? input.guardians ?? [] : undefined,
       classIds: input.role === 'teacher' ? input.classIds ?? [] : undefined,
@@ -108,6 +205,44 @@ export const usersApi = {
     audit(id, 'user.created', `${user.name} (${user.role})`);
     persist('users');
     return user;
+  },
+  /** Admin: delete a user entirely (and unlink them everywhere). */
+  remove(id: string, actorId: string): void {
+    const u = db.users.find((x) => x.id === id);
+    if (!u) return;
+    db.users = db.users.filter((x) => x.id !== id);
+    // Unlink from parents/students and classes.
+    db.parentStudentLinks = db.parentStudentLinks.filter((l) => l.parentId !== id && l.studentId !== id);
+    for (const other of db.users) {
+      if (other.children) other.children = other.children.filter((c) => c !== id);
+      if (other.guardians) other.guardians = other.guardians.filter((g) => g !== id);
+      if (other.classIds) other.classIds = other.classIds.filter((c) => c !== id);
+    }
+    db.classes = db.classes.map((c) => ({ ...c, studentIds: (c.studentIds ?? []).filter((s) => s !== id) }));
+    audit(actorId, 'user.deleted', `Removed ${u.name} (${u.email})`);
+    persist('users');
+    persist('classes');
+    persist('parentStudentLinks');
+  },
+  /** Admin: confirm a user's email/phone directly (no token needed). */
+  confirm(id: string, target: 'email' | 'phone', actorId: string): AuthResult {
+    const u = db.users.find((x) => x.id === id);
+    if (!u) return { ok: false, error: 'Account not found.' };
+    if (target === 'email') { u.emailConfirmed = true; u.emailToken = undefined; }
+    else { u.phoneConfirmed = true; u.phoneToken = undefined; }
+    audit(actorId, target === 'email' ? 'email.confirmed' : 'phone.confirmed', `Admin confirmed ${u.name}'s ${target}`);
+    persist('users');
+    return { ok: true, user: u };
+  },
+  /** Admin: generate a fresh confirmation token for a user. */
+  resendConfirmation(id: string, target: 'email' | 'phone'): { token: string } | { error: string } {
+    const u = db.users.find((x) => x.id === id);
+    if (!u) return { error: 'Account not found.' };
+    const token = genToken();
+    if (target === 'email') { u.emailToken = token; }
+    else { if (!u.phone) return { error: 'User has no phone number.' }; u.phoneToken = token; }
+    persist('users');
+    return { token };
   },
   update(id: string, patch: Partial<User>): User | undefined {
     const u = db.users.find((x) => x.id === id);

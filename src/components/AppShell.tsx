@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from '../context/AppContext';
 import { notificationApi, usersApi } from '../services/api';
-import { Avatar, Badge, cn } from './ui';
+import { Avatar, Badge, Button, cn, Field, Input, Modal } from './ui';
 import type { Role } from '../types';
 
 export interface NavItem { key: string; labelKey: string; icon: string }
@@ -18,9 +18,14 @@ export function AppShell({
   onNavigate: (key: string) => void;
   children: ReactNode;
 }) {
-  const { t, user, logout, theme, toggleTheme, lang, toggleLang } = useApp();
+  const { t, user, logout, theme, toggleTheme, lang, toggleLang, changePassword } = useApp();
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs, setNotifs] = useState(() => (user ? notificationApi.forUser(user.id) : []));
+  const [pwOpen, setPwOpen] = useState(false);
+  const [curPw, setCurPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [pwError, setPwError] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,6 +42,17 @@ export function AppShell({
 
   const unread = notifs.filter((n) => !n.read).length;
   const current = nav.find((n) => n.key === view);
+
+  const submitPw = async () => {
+    setPwError('');
+    if (!curPw || !newPw) { setPwError('Fill in both fields.'); return; }
+    if (newPw.length < 6) { setPwError('New password must be at least 6 characters.'); return; }
+    setPwBusy(true);
+    const res = await changePassword(curPw, newPw);
+    setPwBusy(false);
+    if (res.ok) { setPwOpen(false); setCurPw(''); setNewPw(''); }
+    else setPwError(res.error ?? 'Failed to change password.');
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900">
@@ -69,11 +85,30 @@ export function AppShell({
               <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{user?.name}</p>
               <p className="text-[11px] capitalize text-slate-400">{user ? t(`role_${user.role}`) : ''}</p>
             </div>
+            <button onClick={() => setPwOpen(true)} title="Change password"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">🔑</button>
             <button onClick={logout} title={t('logout')}
               className="ml-auto rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800">⏻</button>
           </div>
         </div>
       </aside>
+
+      {/* change password modal */}
+      <Modal open={pwOpen} onClose={() => setPwOpen(false)} title="Change password">
+        <div className="space-y-3">
+          <Field label="Current password">
+            <Input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} autoComplete="current-password" />
+          </Field>
+          <Field label="New password">
+            <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" placeholder="Min. 6 characters" />
+          </Field>
+          {pwError && <p className="text-sm text-rose-600">⚠ {pwError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setPwOpen(false)}>Cancel</Button>
+            <Button onClick={submitPw} disabled={pwBusy}>{pwBusy ? '…' : 'Change password'}</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Mobile top nav */}
       <div className="no-print sticky top-0 z-30 flex items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 py-2 dark:border-slate-800 dark:bg-slate-900 md:hidden">

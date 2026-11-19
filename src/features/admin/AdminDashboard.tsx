@@ -7,8 +7,8 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
-  announcementApi, attendanceApi, classApi, curriculumApi, exportCsv, gradebookApi,
-  messageApi, settingsApi, usersApi,
+  adminResetPassword, announcementApi, attendanceApi, classApi, curriculumApi, exportCsv,
+  gradebookApi, messageApi, settingsApi, usersApi,
 } from '../../services/api';
 import {
   Badge, Button, Card, EmptyState, Input, Modal, Select, StatCard, Table, THead, TRow, TD, Textarea,
@@ -205,13 +205,14 @@ function UsersView({ admin }: { admin: User }) {
         <Input placeholder={t('search')} value={search} onChange={(e) => setSearch(e.target.value)} className="w-52" />
       </div>
       <Table>
-        <THead><tr><th className="px-4 py-2 text-left">Name</th><th className="px-4 py-2 text-left">Role</th><th className="px-4 py-2 text-left">Email</th><th className="px-4 py-2 text-left">Status</th><th className="px-4 py-2"></th></tr></THead>
+        <THead><tr><th className="px-4 py-2 text-left">Name</th><th className="px-4 py-2 text-left">Role</th><th className="px-4 py-2 text-left">Email</th><th className="px-4 py-2 text-left">Phone</th><th className="px-4 py-2 text-left">Status</th><th className="px-4 py-2"></th></tr></THead>
         <tbody>
           {users.map((u) => (
             <TRow key={u.id}>
               <TD><div className="flex items-center gap-2"><Avatar name={u.name} color={u.avatarColor} size={28} /><span className="font-medium text-slate-800 dark:text-slate-100">{u.name}</span></div></TD>
               <TD><Badge tone={u.role === 'admin' ? 'blue' : u.role === 'teacher' ? 'violet' : u.role === 'student' ? 'green' : 'amber'}>{t(`role_${u.role}`)}</Badge></TD>
-              <TD className="text-xs text-slate-500 dark:text-slate-400">{u.email}</TD>
+              <TD className="text-xs text-slate-500 dark:text-slate-400">{u.email}{!u.emailConfirmed && <span className="ml-1 text-amber-500">⚠</span>}</TD>
+              <TD className="text-xs text-slate-500 dark:text-slate-400">{u.phone ?? '—'}{u.phone && !u.phoneConfirmed && <span className="ml-1 text-amber-500">⚠</span>}</TD>
               <TD>{u.status === 'active' ? <Badge tone="green">{t('active')}</Badge> : <Badge tone="red">{t('suspended')}</Badge>}</TD>
               <TD className="text-end">
                 <Button variant="ghost" className="h-8 px-2 text-xs" onClick={() => setEdit(u)}>{t('edit')}</Button>
@@ -226,19 +227,10 @@ function UsersView({ admin }: { admin: User }) {
         </tbody>
       </Table>
 
-      {/* edit user */}
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={t('edit')}>
+      {/* edit user + admin tools */}
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={t('edit') + ' — ' + (edit?.name ?? '')} wide>
         {edit && (
-          <div className="space-y-3">
-            <Input value={edit.name} onChange={(e) => { usersApi.update(edit.id, { name: e.target.value }); setEdit({ ...edit, name: e.target.value }); }} />
-            <Input value={edit.email} onChange={(e) => { usersApi.update(edit.id, { email: e.target.value }); setEdit({ ...edit, email: e.target.value }); }} />
-            {edit.role === 'parent' && (
-              <p className="text-xs text-slate-400">Linked children: {(edit.children ?? []).map((c) => usersApi.byId(c)?.name).join(', ') || 'none'}</p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setEdit(null)}>{t('close')}</Button>
-            </div>
-          </div>
+          <EditUserModal user={edit} onClose={() => setEdit(null)} />
         )}
       </Modal>
 
@@ -262,7 +254,7 @@ function UsersView({ admin }: { admin: User }) {
 
 function AddUserForm({ onDone }: { onDone: () => void }) {
   const { t, toast } = useApp();
-  const [d, setD] = useState({ name: '', email: '', role: 'student' as Role, password: '' });
+  const [d, setD] = useState({ name: '', email: '', phone: '', role: 'student' as Role, password: '' });
   const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!d.name || !d.email) return toast('Name and email required', 'error');
@@ -277,6 +269,7 @@ function AddUserForm({ onDone }: { onDone: () => void }) {
     <div className="space-y-3">
       <Input placeholder={t('newUser') + ' — name'} value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} />
       <Input placeholder="Email" value={d.email} onChange={(e) => setD({ ...d, email: e.target.value })} />
+      <Input placeholder="Phone (optional, e.g. +201000000000)" value={d.phone} onChange={(e) => setD({ ...d, phone: e.target.value })} />
       <Select value={d.role} onChange={(e) => setD({ ...d, role: e.target.value as Role })}>
         <option value="student">{t('role_student')}</option>
         <option value="teacher">{t('role_teacher')}</option>
@@ -338,6 +331,113 @@ function LinkParentForm({ onDone }: { onDone: () => void }) {
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onDone}>{t('cancel')}</Button>
         <Button onClick={link}>{t('save')}</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * EditUserModal — full admin control over a single user:
+ * edit name/email/phone, confirm email/phone, reset password, delete account.
+ */
+function EditUserModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const { t, toast } = useApp();
+  const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email);
+  const [phone, setPhone] = useState(user.phone ?? '');
+  const [resetPw, setResetPw] = useState('');
+  const [confirmToken, setConfirmToken] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const saveProfile = () => {
+    usersApi.update(user.id, { name, email, phone: phone || undefined });
+    toast('Profile updated', 'success');
+  };
+
+  const doConfirm = (target: 'email' | 'phone') => {
+    const token = target === 'email' ? confirmToken : confirmToken;
+    if (target === 'email') {
+      const res = usersApi.confirm(user.id, 'email', user.id);
+      if (res.ok) toast('Email confirmed', 'success');
+      else toast(res.error ?? 'Failed', 'error');
+    } else {
+      if (!user.phone) { toast('User has no phone number', 'error'); return; }
+      const res = usersApi.confirm(user.id, 'phone', user.id);
+      if (res.ok) toast('Phone confirmed', 'success');
+      else toast(res.error ?? 'Failed', 'error');
+    }
+  };
+
+  const resend = (target: 'email' | 'phone') => {
+    const res = usersApi.resendConfirmation(user.id, target);
+    if ('token' in res) {
+      setConfirmToken(res.token);
+      toast(`New ${target} confirmation code: ${res.token}`, 'info');
+    } else toast(res.error, 'error');
+  };
+
+  const doReset = async () => {
+    if (resetPw.length < 6) { toast('Password must be at least 6 characters', 'error'); return; }
+    setBusy(true);
+    const res = await adminResetPassword(user.id, resetPw, user.id);
+    setBusy(false);
+    if (res.ok) { toast('Password reset — new password set', 'success'); setResetPw(''); }
+    else toast(res.error ?? 'Failed', 'error');
+  };
+
+  const doDelete = () => {
+    if (!confirm(`Delete ${user.name}? This cannot be undone.`)) return;
+    usersApi.remove(user.id, user.id);
+    toast('User deleted', 'success');
+    onClose();
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* profile */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Profile</h3>
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+        <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone (e.g. +201000000000)" />
+        <Button onClick={saveProfile}>{t('save')}</Button>
+      </div>
+
+      {/* confirmation */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Verification</h3>
+        <div className="flex items-center gap-2">
+          <Badge tone={user.emailConfirmed ? 'green' : 'amber'}>Email: {user.emailConfirmed ? 'Confirmed' : 'Unconfirmed'}</Badge>
+          <Badge tone={user.phoneConfirmed ? 'green' : 'amber'}>Phone: {user.phoneConfirmed ? 'Confirmed' : 'Unconfirmed'}</Badge>
+        </div>
+        <Input value={confirmToken} onChange={(e) => setConfirmToken(e.target.value)} placeholder="Confirmation code" className="font-mono" />
+        <div className="flex flex-wrap gap-2">
+          {!user.emailConfirmed && <>
+            <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => resend('email')}>Resend email code</Button>
+            <Button className="h-8 px-3 text-xs" onClick={() => doConfirm('email')}>Confirm email</Button>
+          </>}
+          {user.phone && !user.phoneConfirmed && <>
+            <Button variant="secondary" className="h-8 px-3 text-xs" onClick={() => resend('phone')}>Resend phone code</Button>
+            <Button className="h-8 px-3 text-xs" onClick={() => doConfirm('phone')}>Confirm phone</Button>
+          </>}
+        </div>
+      </div>
+
+      {/* password reset */}
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Reset password</h3>
+        <Input type="password" value={resetPw} onChange={(e) => setResetPw(e.target.value)} placeholder="New password (min 6 chars)" />
+        <Button onClick={doReset} disabled={busy}>{busy ? '…' : 'Reset password'}</Button>
+      </div>
+
+      {/* danger */}
+      <div className="space-y-2 border-t border-rose-200 pt-3 dark:border-rose-900">
+        <h3 className="text-sm font-semibold text-rose-600 dark:text-rose-400">Danger zone</h3>
+        <Button variant="danger" onClick={doDelete}>Delete account</Button>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={onClose}>{t('close')}</Button>
       </div>
     </div>
   );

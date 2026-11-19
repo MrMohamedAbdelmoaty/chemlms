@@ -75,6 +75,22 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+/**
+ * International phone number check. Accepts a leading `+`, digits, spaces,
+ * dashes and parentheses — at least 7 digits. Normalised for storage.
+ */
+export function isValidPhone(phone: string): boolean {
+  const digits = phone.replace(/[^\d]/g, '');
+  return digits.length >= 7 && digits.length <= 15 && /^\+?[\d\s\-()]+$/.test(phone.trim());
+}
+
+/** Normalise a phone number to E.164-ish digits (keep leading +). */
+export function normalizePhone(phone: string): string {
+  const trimmed = phone.trim();
+  const plus = trimmed.startsWith('+') ? '+' : '';
+  return plus + trimmed.replace(/[^\d]/g, '');
+}
+
 /** Minimum password strength check. */
 export function isStrongPassword(password: string): boolean {
   return password.length >= 6;

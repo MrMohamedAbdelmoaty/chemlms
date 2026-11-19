@@ -20,6 +20,16 @@ export interface User {
    * stored in plain text — login re-derives the hash and compares.
    */
   passwordHash: string;
+  /** Optional phone number for registration/login by phone. */
+  phone?: string;
+  /** Whether the email has been confirmed. */
+  emailConfirmed: boolean;
+  /** Whether the phone has been confirmed. */
+  phoneConfirmed: boolean;
+  /** Pending email-confirmation token (cleared once confirmed). */
+  emailToken?: string;
+  /** Pending phone-confirmation token (cleared once confirmed). */
+  phoneToken?: string;
   /** Parent -> linked student ids */
   children?: string[];
   /** Student -> linked parent/guardian ids */

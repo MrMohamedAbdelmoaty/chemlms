@@ -4,7 +4,12 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { dictionaries, type Lang } from '../i18n';
-import { login as apiLogin, register as apiRegister } from '../services/api';
+import {
+  login as apiLogin,
+  register as apiRegister,
+  changePassword as apiChangePassword,
+  confirmAccount as apiConfirmAccount,
+} from '../services/api';
 import type { AuthResult, User, Role } from '../types';
 import { db } from '../services/db';
 
@@ -12,9 +17,15 @@ export interface Toast { id: number; text: string; tone: 'info' | 'success' | 'e
 
 interface AppCtx {
   user: User | null;
-  login: (email: string, password: string) => Promise<AuthResult>;
-  loginAs: (email: string, password: string) => Promise<AuthResult>;
-  register: (input: { name: string; email: string; password: string; role?: Role }) => Promise<AuthResult>;
+  /** Sign in by email **or** phone + password. */
+  login: (identifier: string, password: string) => Promise<AuthResult>;
+  loginAs: (identifier: string, password: string) => Promise<AuthResult>;
+  /** Register by email **or** phone. */
+  register: (input: { name: string; identifier?: string; email?: string; phone?: string; password: string; role?: Role }) => Promise<AuthResult & { confirmationToken?: string; confirmationTarget?: string }>;
+  /** Change the signed-in user's password. */
+  changePassword: (current: string, next: string) => Promise<AuthResult>;
+  /** Confirm an account with a registration token. */
+  confirm: (token: string) => AuthResult;
   logout: () => void;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
@@ -56,8 +67,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await apiLogin(email, password);
+  const login = useCallback(async (identifier: string, password: string) => {
+    const res = await apiLogin(identifier, password);
     if (res.ok && res.user) {
       setUser(res.user);
       toast(`${res.user.name} — ${res.user.role}`, 'success');
@@ -65,24 +76,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return res;
   }, [toast]);
 
-  const register = useCallback(async (input: { name: string; email: string; password: string; role?: Role }) => {
-    const res = await apiRegister(input);
+  const register = useCallback(async (input: { name: string; identifier?: string; email?: string; phone?: string; password: string; role?: Role }) => {
+    const res = await apiRegister({
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      password: input.password,
+      role: input.role,
+      identifier: input.identifier,
+    });
     if (res.ok && res.user) {
       setUser(res.user);
       toast(`${res.user.name} — ${res.user.role}`, 'success');
     }
     return res;
   }, [toast]);
+
+  const changePassword = useCallback(async (current: string, next: string) => {
+    if (!user) return { ok: false, error: 'Not signed in.' };
+    const res = await apiChangePassword(user.id, current, next);
+    if (res.ok) toast('Password changed successfully', 'success');
+    return res;
+  }, [user, toast]);
+
+  const confirm = useCallback((token: string) => {
+    if (!user) return { ok: false, error: 'Not signed in.' };
+    const res = apiConfirmAccount(user.id, token);
+    if (res.ok && res.user) setUser(res.user);
+    return res;
+  }, [user]);
 
   const logout = useCallback(() => setUser(null), []);
 
   const value = useMemo<AppCtx>(() => ({
-    user, login, loginAs: login, register, logout,
+    user, login, loginAs: login, register, changePassword, confirm, logout,
     theme, toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
     lang, toggleLang: () => setLang((l) => (l === 'en' ? 'ar' : 'en')),
     t: (key: string) => dictionaries[lang][key] ?? dictionaries.en[key] ?? key,
     toasts, toast,
-  }), [user, login, register, logout, theme, lang, toasts, toast]);
+  }), [user, login, register, changePassword, confirm, logout, theme, lang, toasts, toast]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

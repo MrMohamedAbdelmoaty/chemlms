@@ -15,8 +15,11 @@ export interface User {
   role: Role;
   avatarColor: string; // initials background token
   status: 'active' | 'suspended';
-  /** Mock-only credential. A real backend would store only a password hash. */
-  password: string;
+  /**
+   * PBKDF2 password hash (`pbkdf2$iterations$salt$hash`). Passwords are never
+   * stored in plain text — login re-derives the hash and compares.
+   */
+  passwordHash: string;
   /** Parent -> linked student ids */
   children?: string[];
   /** Student -> linked parent/guardian ids */

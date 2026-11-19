@@ -22,3 +22,4 @@ build/
 .npm/
 .eslintrc*
 *.tsbuildinfo
+uploads/

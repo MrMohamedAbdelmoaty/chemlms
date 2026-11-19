@@ -263,9 +263,13 @@ function UsersView({ admin }: { admin: User }) {
 function AddUserForm({ onDone }: { onDone: () => void }) {
   const { t, toast } = useApp();
   const [d, setD] = useState({ name: '', email: '', role: 'student' as Role, password: '' });
-  const save = () => {
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
     if (!d.name || !d.email) return toast('Name and email required', 'error');
-    usersApi.create(d);
+    if (d.password && d.password.length < 6) return toast('Password must be at least 6 characters', 'error');
+    setBusy(true);
+    await usersApi.create(d);
+    setBusy(false);
     toast('User added', 'success');
     onDone();
   };
@@ -278,10 +282,10 @@ function AddUserForm({ onDone }: { onDone: () => void }) {
         <option value="teacher">{t('role_teacher')}</option>
         <option value="parent">{t('role_parent')}</option>
       </Select>
-      <Input placeholder="Password (mock)" value={d.password} onChange={(e) => setD({ ...d, password: e.target.value })} />
+      <Input placeholder="Password (min 6 chars)" value={d.password} onChange={(e) => setD({ ...d, password: e.target.value })} />
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onDone}>{t('cancel')}</Button>
-        <Button onClick={save}>{t('save')}</Button>
+        <Button onClick={save} disabled={busy}>{busy ? '…' : t('save')}</Button>
       </div>
     </div>
   );
@@ -290,8 +294,11 @@ function AddUserForm({ onDone }: { onDone: () => void }) {
 function BulkImportForm({ onDone, template }: { onDone: () => void; template: () => void }) {
   const { t, toast } = useApp();
   const [csv, setCsv] = useState('');
-  const save = () => {
-    const n = usersApi.bulkImport(csv);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    const n = await usersApi.bulkImport(csv);
+    setBusy(false);
     toast(`${n} users imported`, 'success');
     onDone();
   };
@@ -303,7 +310,7 @@ function BulkImportForm({ onDone, template }: { onDone: () => void; template: ()
       <Button variant="outline" className="h-9 px-3 text-xs" onClick={template}>Download CSV template</Button>
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onDone}>{t('cancel')}</Button>
-        <Button onClick={save}>{t('save')}</Button>
+        <Button onClick={save} disabled={busy}>{busy ? '…' : t('save')}</Button>
       </div>
     </div>
   );

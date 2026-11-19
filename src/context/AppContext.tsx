@@ -4,16 +4,17 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { dictionaries, type Lang } from '../i18n';
-import { login as apiLogin } from '../services/api';
-import type { AuthResult, User } from '../types';
+import { login as apiLogin, register as apiRegister } from '../services/api';
+import type { AuthResult, User, Role } from '../types';
 import { db } from '../services/db';
 
 export interface Toast { id: number; text: string; tone: 'info' | 'success' | 'error' }
 
 interface AppCtx {
   user: User | null;
-  login: (email: string, password: string) => AuthResult;
-  loginAs: (email: string, password: string) => AuthResult;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  loginAs: (email: string, password: string) => Promise<AuthResult>;
+  register: (input: { name: string; email: string; password: string; role?: Role }) => Promise<AuthResult>;
   logout: () => void;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
@@ -55,8 +56,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500);
   }, []);
 
-  const login = useCallback((email: string, password: string) => {
-    const res = apiLogin(email, password);
+  const login = useCallback(async (email: string, password: string) => {
+    const res = await apiLogin(email, password);
+    if (res.ok && res.user) {
+      setUser(res.user);
+      toast(`${res.user.name} — ${res.user.role}`, 'success');
+    }
+    return res;
+  }, [toast]);
+
+  const register = useCallback(async (input: { name: string; email: string; password: string; role?: Role }) => {
+    const res = await apiRegister(input);
     if (res.ok && res.user) {
       setUser(res.user);
       toast(`${res.user.name} — ${res.user.role}`, 'success');
@@ -67,12 +77,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => setUser(null), []);
 
   const value = useMemo<AppCtx>(() => ({
-    user, login, loginAs: login, logout,
+    user, login, loginAs: login, register, logout,
     theme, toggleTheme: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
     lang, toggleLang: () => setLang((l) => (l === 'en' ? 'ar' : 'en')),
     t: (key: string) => dictionaries[lang][key] ?? dictionaries.en[key] ?? key,
     toasts, toast,
-  }), [user, login, logout, theme, lang, toasts, toast]);
+  }), [user, login, register, logout, theme, lang, toasts, toast]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

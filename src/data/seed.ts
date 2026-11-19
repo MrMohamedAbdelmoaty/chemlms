@@ -145,11 +145,20 @@ const PARENT_NAMES: [string, number[]][] = [
   ['Rane Salam', [12, 18, 20]],
 ];
 
+// Pre-computed PBKDF2 hashes for the seeded demo passwords (admin123 / teacher123
+// / student123 / parent123). Passwords are stored only as hashes; login
+// re-derives the hash and compares. New accounts created in the app use
+// hashPassword() at runtime.
+const H_ADMIN = 'pbkdf2$100000$eiSy7BT49dkTXDJp0VxOLQ==$UVuwb3XdYgwbDUq9whOHnd98TUD8IpmPtv2TEC3TA3Q=';
+const H_TEACHER = 'pbkdf2$100000$w2Ahk7F9nmHHxvpPJjAPcg==$LYRiURPu5h680RnGvh3eGI6NONhia1OeqdEXiuISXfA=';
+const H_STUDENT = 'pbkdf2$100000$7LSqZqhUXFCXIjj2R9njYw==$x1cQviHZCkYRCKo4oVTI1bLKGOBdSjMBa8mNUjOhEwM=';
+const H_PARENT = 'pbkdf2$100000$aet7QBvEd46aKyPfOqt31Q==$n1ZkzYpuZFQomAITXDIP7UzYbMTwt4QyyTKZRLGr10M=';
+
 const users: User[] = [
-  { id: 'u-admin', name: 'Dr. Nabil El-Sayed', email: 'admin@chemlms.edu', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', password: 'admin123' },
-  { id: 'u-t1', name: 'Dr. Lena Hassan', email: 'lena@chemlms.edu', role: 'teacher', avatarColor: AVATARS[0], status: 'active', password: 'teacher123', classIds: ['c1', 'c3'] },
-  { id: 'u-t2', name: 'Mr. Omar Khalil', email: 'omar@chemlms.edu', role: 'teacher', avatarColor: AVATARS[1], status: 'active', password: 'teacher123', classIds: ['c2', 'c4'] },
-  { id: 'u-t3', name: 'Ms. Sara Ibrahim', email: 'sara@chemlms.edu', role: 'teacher', avatarColor: AVATARS[2], status: 'active', password: 'teacher123', classIds: ['c5'] },
+  { id: 'u-admin', name: 'Dr. Nabil El-Sayed', email: 'admin@chemlms.edu', role: 'admin', avatarColor: 'bg-slate-700', status: 'active', passwordHash: H_ADMIN },
+  { id: 'u-t1', name: 'Dr. Lena Hassan', email: 'lena@chemlms.edu', role: 'teacher', avatarColor: AVATARS[0], status: 'active', passwordHash: H_TEACHER, classIds: ['c1', 'c3'] },
+  { id: 'u-t2', name: 'Mr. Omar Khalil', email: 'omar@chemlms.edu', role: 'teacher', avatarColor: AVATARS[1], status: 'active', passwordHash: H_TEACHER, classIds: ['c2', 'c4'] },
+  { id: 'u-t3', name: 'Ms. Sara Ibrahim', email: 'sara@chemlms.edu', role: 'teacher', avatarColor: AVATARS[2], status: 'active', passwordHash: H_TEACHER, classIds: ['c5'] },
 ];
 
 // Classes: 2 per curriculum where possible. Students s1..s20 mapped below.
@@ -171,7 +180,7 @@ for (let i = 0; i < STUDENT_NAMES.length; i++) {
   users.push({
     id: `s${i + 1}`, name: STUDENT_NAMES[i], email: `student${i + 1}@chemlms.edu`,
     role: 'student', avatarColor: AVATARS[i % AVATARS.length], status: 'active',
-    password: 'student123', studentClassIds: [classOf[0]],
+    passwordHash: H_STUDENT, studentClassIds: [classOf[0]],
   });
 }
 
@@ -183,7 +192,7 @@ for (let i = 0; i < PARENT_NAMES.length; i++) {
   users.push({
     id: pid, name, email: `parent${i + 1}@chemlms.edu`, role: 'parent',
     avatarColor: AVATARS[(i + 3) % AVATARS.length], status: 'active',
-    password: 'parent123', children: childIds.map((c) => `s${c}`),
+    passwordHash: H_PARENT, children: childIds.map((c) => `s${c}`),
   });
   for (const c of childIds) parentStudentLinks.push({ parentId: pid, studentId: `s${c}` });
 }

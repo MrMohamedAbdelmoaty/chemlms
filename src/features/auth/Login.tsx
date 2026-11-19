@@ -1,11 +1,13 @@
 /**
- * Role-based login with demo accounts for Admin, Teacher, Student and
- * Parent. Selecting a role fills the credentials so the reviewer can sign
- * in instantly.
+ * Login + registration screen.
+ *
+ * Real authentication: sign in with email + password (verified against a
+ * PBKDF2 hash), or register a brand-new account with a chosen email,
+ * password and role. No demo quick-fill — every account is a real account.
  */
 import { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { demoAccounts } from '../../services/api';
+import { isValidEmail, isStrongPassword } from '../../services/password';
 import { Button, Field, Input } from '../../components/ui';
 import type { Role } from '../../types';
 
@@ -17,24 +19,44 @@ const ROLE_META: Record<Role, { icon: string; blurb: string }> = {
 };
 
 export function Login() {
-  const { t, login, theme, toggleTheme, lang, toggleLang } = useApp();
+  const { t, login, register, theme, toggleTheme, lang, toggleLang, toast } = useApp();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+
+  // login fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const accounts = demoAccounts();
+  // register fields
+  const [rName, setRName] = useState('');
+  const [rEmail, setREmail] = useState('');
+  const [rPassword, setRPassword] = useState('');
+  const [rRole, setRRole] = useState<Role>('student');
+  const [rError, setRError] = useState('');
+  const [rBusy, setRBusy] = useState(false);
 
-  const signIn = (e: React.FormEvent) => {
+  const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = login(email, password);
+    setError('');
+    if (!email || !password) { setError(t('invalidCredentials')); return; }
+    setBusy(true);
+    const res = await login(email, password);
+    setBusy(false);
     if (!res.ok) setError(res.error ?? t('invalidCredentials'));
   };
 
-  const quickFill = (acc: { email: string; password: string }) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setError('');
-    login(acc.email, acc.password);
+  const signUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRError('');
+    if (!rName.trim() || !rEmail.trim() || !rPassword) { setRError('All fields are required.'); return; }
+    if (!isValidEmail(rEmail)) { setRError('Please enter a valid email address.'); return; }
+    if (!isStrongPassword(rPassword)) { setRError('Password must be at least 6 characters.'); return; }
+    setRBusy(true);
+    const res = await register({ name: rName, email: rEmail, password: rPassword, role: rRole });
+    setRBusy(false);
+    if (!res.ok) { setRError(res.error ?? 'Registration failed.'); return; }
+    toast('Account created — welcome!', 'success');
   };
 
   return (
@@ -65,38 +87,83 @@ export function Login() {
           </div>
         </div>
 
-        {/* Right: sign-in */}
+        {/* Right: auth card */}
         <div className="mx-auto w-full max-w-md">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-800">
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{t('login')}</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t('loginSubtitle')}</p>
-
-            <form onSubmit={signIn} className="mt-5 space-y-4">
-              <Field label={t('email')}>
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="name@chemlms.edu" />
-              </Field>
-              <Field label={t('password')}>
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="••••••••" />
-              </Field>
-              {error && <p className="text-sm text-rose-600">⚠ {error}</p>}
-              <Button type="submit" className="w-full justify-center">{t('signIn')}</Button>
-            </form>
-
-            <div className="mt-6">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">{t('demoAccount')}</p>
-              <div className="grid grid-cols-2 gap-3">
-                {accounts.map((acc) => (
-                  <button key={acc.role} type="button" onClick={() => quickFill(acc)}
-                    className="rounded-xl border border-slate-200 p-3 text-left transition-all hover:border-brand-400 hover:shadow-md dark:border-slate-700 dark:hover:border-brand-500">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{ROLE_META[acc.role].icon}</span>
-                      <span className="text-sm font-semibold capitalize text-slate-800 dark:text-slate-100">{t(`role_${acc.role}`)}</span>
-                    </div>
-                    <p className="mt-1 font-mono text-[11px] text-slate-400">{acc.email}</p>
-                  </button>
-                ))}
-              </div>
+            {/* tabs */}
+            <div className="mb-5 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
+              <button
+                type="button"
+                onClick={() => { setMode('login'); setError(''); }}
+                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
+                  mode === 'login' ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                {t('login')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('register'); setRError(''); }}
+                className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
+                  mode === 'register' ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                {t('register')}
+              </button>
             </div>
+
+            {mode === 'login' ? (
+              <>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{t('loginSubtitle')}</p>
+                <form onSubmit={signIn} className="mt-5 space-y-4">
+                  <Field label={t('email')}>
+                    <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="name@school.edu" />
+                  </Field>
+                  <Field label={t('password')}>
+                    <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="••••••••" />
+                  </Field>
+                  {error && <p className="text-sm text-rose-600">⚠ {error}</p>}
+                  <Button type="submit" disabled={busy} className="w-full justify-center">
+                    {busy ? '…' : t('signIn')}
+                  </Button>
+                </form>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Create a new account. Passwords are stored securely as a hash.</p>
+                <form onSubmit={signUp} className="mt-5 space-y-4">
+                  <Field label={t('name')}>
+                    <Input value={rName} onChange={(e) => setRName(e.target.value)} placeholder={t('name')} />
+                  </Field>
+                  <Field label={t('email')}>
+                    <Input type="email" value={rEmail} onChange={(e) => setREmail(e.target.value)} autoComplete="username" placeholder="name@school.edu" />
+                  </Field>
+                  <Field label={t('password')}>
+                    <Input type="password" value={rPassword} onChange={(e) => setRPassword(e.target.value)} autoComplete="new-password" placeholder="Min. 6 characters" />
+                  </Field>
+                  <Field label={t('role')}>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['student', 'parent', 'teacher'] as Role[]).map((r) => (
+                        <button
+                          key={r} type="button"
+                          onClick={() => setRRole(r)}
+                          className={`flex items-center gap-2 rounded-xl border p-2.5 text-left transition-colors ${
+                            rRole === r ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          <span className="text-lg">{ROLE_META[r].icon}</span>
+                          <span className="text-sm capitalize text-slate-700 dark:text-slate-200">{t(`role_${r}`)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                  {rError && <p className="text-sm text-rose-600">⚠ {rError}</p>}
+                  <Button type="submit" disabled={rBusy} className="w-full justify-center">
+                    {rBusy ? '…' : t('createAccount')}
+                  </Button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </div>

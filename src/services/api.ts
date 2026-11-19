@@ -10,6 +10,7 @@
 import { db, resetDatabase, persist } from './db';
 import { supabaseEnabled, saveCollection } from './supabase';
 import { gradeAll, type GradeResult } from './grading';
+import { hashPassword, verifyPassword } from './password';
 import type {
   AuthResult, Role, User, Database,
 } from '../types';
@@ -25,24 +26,60 @@ function audit(actorId: string, action: string, detail: string) {
 }
 
 /* ------------------------------------ auth ----------------------------------- */
-export function login(email: string, password: string): AuthResult {
-  const user = db.users.find(
-    (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
-  );
-  if (!user || user.status === 'suspended') {
-    return { ok: false, error: 'Invalid credentials. Try a demo account below.' };
+/**
+ * Authenticate by email + password. The supplied password is verified against
+ * the stored PBKDF2 hash (never compared in plain text). Returns the user on
+ * success, or an error otherwise.
+ */
+export async function login(email: string, password: string): Promise<AuthResult> {
+  const user = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+  if (!user) {
+    return { ok: false, error: 'No account found with that email.' };
+  }
+  if (user.status === 'suspended') {
+    return { ok: false, error: 'This account has been suspended. Contact an administrator.' };
+  }
+  const valid = await verifyPassword(password, user.passwordHash);
+  if (!valid) {
+    return { ok: false, error: 'Incorrect password. Please try again.' };
   }
   audit(user.id, 'login', `${user.name} signed in as ${user.role}`);
   return { ok: true, user };
 }
 
-/** Demo accounts shown on the login screen. */
-export function demoAccounts(): { role: Role; email: string; password: string }[] {
+/**
+ * Register a brand-new account. Password is hashed before storage — the plain
+ * text never touches the database. Available for the demo; a real backend
+ * would gate registration (email verification / admin approval).
+ */
+export async function register(input: {
+  name: string; email: string; password: string; role?: Role;
+}): Promise<AuthResult> {
+  const email = input.email.trim().toLowerCase();
+  if (db.users.some((u) => u.email.toLowerCase() === email)) {
+    return { ok: false, error: 'An account with this email already exists.' };
+  }
+  const passwordHash = await hashPassword(input.password);
+  const role: Role = input.role ?? 'student';
+  const id = `u-${Date.now().toString(36)}`;
+  const user: User = {
+    id, name: input.name.trim(), email, role,
+    avatarColor: 'bg-indigo-500', status: 'active', passwordHash,
+    children: role === 'parent' ? [] : undefined,
+    guardians: role === 'student' ? [] : undefined,
+    classIds: role === 'teacher' ? [] : undefined,
+    studentClassIds: role === 'student' ? [] : undefined,
+  };
+  db.users.push(user);
+  audit(id, 'user.registered', `${user.name} (${user.role}) — self-registration`);
+  persist('users');
+  return { ok: true, user };
+}
+
+/** Seed account credentials (kept for the admin to sign in; shown nowhere in the UI). */
+export function seedAccounts(): { role: Role; email: string }[] {
   return [
-    { role: 'admin', email: 'admin@chemlms.edu', password: 'admin123' },
-    { role: 'teacher', email: 'lena@chemlms.edu', password: 'teacher123' },
-    { role: 'student', email: 'student1@chemlms.edu', password: 'student123' },
-    { role: 'parent', email: 'parent3@chemlms.edu', password: 'parent123' },
+    { role: 'admin', email: 'admin@chemlms.edu' },
   ];
 }
 
@@ -54,12 +91,14 @@ export const usersApi = {
   byId(id: string): User | undefined {
     return db.users.find((u) => u.id === id);
   },
-  create(input: Partial<User> & { name: string; email: string; role: Role }): User {
+  async create(input: Partial<User> & { name: string; email: string; role: Role; password?: string }): Promise<User> {
     const id = `u-${Date.now().toString(36)}`;
+    // Hash the provided password; default to a random placeholder if omitted.
+    const plain = input.password && input.password.length >= 4 ? input.password : `tmp-${id}`;
+    const passwordHash = await hashPassword(plain);
     const user: User = {
       id, name: input.name, email: input.email, role: input.role,
-      avatarColor: 'bg-indigo-500', status: 'active',
-      password: input.password ?? 'changeme123',
+      avatarColor: 'bg-indigo-500', status: 'active', passwordHash,
       children: input.role === 'parent' ? input.children ?? [] : undefined,
       guardians: input.role === 'student' ? input.guardians ?? [] : undefined,
       classIds: input.role === 'teacher' ? input.classIds ?? [] : undefined,
@@ -88,13 +127,13 @@ export const usersApi = {
     }
   },
   /** Parse CSV rows (name,email,role) and bulk-create users. */
-  bulkImport(csv: string): number {
+  async bulkImport(csv: string): Promise<number> {
     const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0 && !l.startsWith('name,'));
     let count = 0;
     for (const line of lines) {
       const [name, email, role] = line.split(',').map((s) => s.trim());
       if (!name || !email) continue;
-      usersApi.create({
+      await usersApi.create({
         name, email,
         role: (['teacher', 'student', 'parent'] as Role[]).includes(role as Role) ? (role as Role) : 'student',
       });

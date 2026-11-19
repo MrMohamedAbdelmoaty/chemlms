@@ -31,9 +31,13 @@ export function resetDatabase(): void {
 }
 
 /**
- * Persist one collection to Supabase (fire-and-forget). Called after every
- * mutation. The in-memory `db` is already updated, so the UI responds instantly
- * and the durable write happens in the background.
+ * Persist one collection to Supabase. Called after every mutation. The
+ * in-memory `db` is already updated, so the UI responds instantly and the
+ * durable write happens in the background.
+ *
+ * A coalescing write queue batches rapid successive persists for the same
+ * collection into a single write, avoiding races / duplicate-key conflicts
+ * when several mutations happen in the same tick.
  *
  * Handles three shapes:
  *  - id-keyed arrays (users, grades, submissions, ...) — one row per record.
@@ -41,11 +45,13 @@ export function resetDatabase(): void {
  *  - `progress` / `parentStudentLinks` — derived from `users`/parent links, so
  *    they are written via their parent entity's persist call.
  */
+const writeQueue = new Map<string, Promise<void>>();
+
 export function persist(collection: keyof Database): void {
   if (!supabaseEnabled) return;
 
   if (collection === 'settings') {
-    void saveCollection('settings', [{ id: 'root', ...(db.settings as object) } as { id: string }]);
+    void scheduleWrite('settings', () => saveCollection('settings', [{ id: 'root', ...(db.settings as object) } as { id: string }]));
     return;
   }
   if (collection === 'progress' || collection === 'parentStudentLinks') return;
@@ -53,7 +59,27 @@ export function persist(collection: keyof Database): void {
   const records = db[collection] as { id?: string }[];
   if (!Array.isArray(records)) return;
   const keyed = records.filter((r) => r && typeof r.id === 'string') as { id: string }[];
-  void saveCollection(collection as string, keyed);
+  void scheduleWrite(collection as string, () => saveCollection(collection as string, keyed));
+}
+
+/**
+ * Schedule a write for `collection`, serialized per collection so concurrent
+ * mutations never race (delete-then-insert for the same collection must run
+ * one after another). The latest in-memory state is always flushed.
+ */
+function scheduleWrite(collection: string, write: () => Promise<void>): Promise<void> {
+  const existing = writeQueue.get(collection);
+  if (existing) {
+    // Chain after the in-flight write so the two delete-then-insert cycles
+    // don't overlap. Swallow the prior rejection; the new write re-reads
+    // current state anyway.
+    const next = existing.then(write, write).catch(() => {}).finally(() => writeQueue.delete(collection));
+    writeQueue.set(collection, next);
+    return next;
+  }
+  const p = write().catch(() => {}).finally(() => writeQueue.delete(collection));
+  writeQueue.set(collection, p);
+  return p;
 }
 
 /**

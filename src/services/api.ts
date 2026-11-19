@@ -7,7 +7,8 @@
  * for mutations. A real backend replaces the in-memory `db` operations here
  * with REST calls without touching any component.
  */
-import { db, resetDatabase } from './db';
+import { db, resetDatabase, persist } from './db';
+import { supabaseEnabled, saveCollection } from './supabase';
 import { gradeAll, type GradeResult } from './grading';
 import type {
   AuthResult, Role, User, Database,
@@ -19,6 +20,8 @@ function audit(actorId: string, action: string, detail: string) {
   db.auditLogs.push({
     id: `al${++logSeq}`, actorId, action, detail, at: new Date().toISOString(),
   });
+  // Persist the audit trail durably on every logged action.
+  persist('auditLogs');
 }
 
 /* ------------------------------------ auth ----------------------------------- */
@@ -64,6 +67,7 @@ export const usersApi = {
     };
     db.users.push(user);
     audit(id, 'user.created', `${user.name} (${user.role})`);
+    persist('users');
     return user;
   },
   update(id: string, patch: Partial<User>): User | undefined {
@@ -71,6 +75,7 @@ export const usersApi = {
     if (u) {
       Object.assign(u, patch);
       audit(id, 'user.updated', `Updated ${u.name}`);
+      persist('users');
     }
     return u;
   },
@@ -79,6 +84,7 @@ export const usersApi = {
     if (u) {
       u.status = status;
       audit(id, status === 'suspended' ? 'user.suspended' : 'user.reactivated', u.name);
+      persist('users');
     }
   },
   /** Parse CSV rows (name,email,role) and bulk-create users. */
@@ -95,6 +101,7 @@ export const usersApi = {
       count++;
     }
     audit('u-admin', 'user.bulk_import', `Imported ${count} users from CSV`);
+    persist('users');
     return count;
   },
   linkParentStudent(parentId: string, studentId: string): void {
@@ -105,6 +112,7 @@ export const usersApi = {
       if (parent) parent.children = [...new Set([...(parent.children ?? []), studentId])];
       if (student) student.guardians = [...new Set([...(student.guardians ?? []), parentId])];
       audit(parentId, 'link.created', `Linked to ${studentId}`);
+      persist('users');
     }
   },
   unlinkParentStudent(parentId: string, studentId: string): void {
@@ -115,6 +123,7 @@ export const usersApi = {
     if (parent) parent.children = (parent.children ?? []).filter((c) => c !== studentId);
     const student = usersApi.byId(studentId);
     if (student) student.guardians = (student.guardians ?? []).filter((g) => g !== parentId);
+    persist('users');
   },
 };
 
@@ -134,10 +143,12 @@ export const curriculumApi = {
       });
       audit('u-admin', 'curriculum.created', input.name);
     }
+    persist('curricula');
   },
   remove(id: string): void {
     db.curricula = db.curricula.filter((c) => c.id !== id);
     audit('u-admin', 'curriculum.deleted', id);
+    persist('curricula');
   },
   grades(curriculumId: string): Database['grades'] {
     return db.grades.filter((g) => g.curriculumId === curriculumId);
@@ -150,6 +161,7 @@ export const curriculumApi = {
       db.grades.push({ id: `g-${input.curriculumId}-${db.grades.length}`, curriculumId: input.curriculumId, name: input.name, order: db.grades.length });
       audit('u-admin', 'grade.created', input.name);
     }
+    persist('grades');
   },
   topics(curriculumId: string) {
     return db.topics.filter((t) => t.curriculumId === curriculumId);
@@ -182,9 +194,11 @@ export const classApi = {
       });
       audit('u-admin', 'class.created', input.name);
     }
+    persist('classes');
   },
   remove(id: string): void {
     db.classes = db.classes.filter((c) => c.id !== id);
+    persist('classes');
   },
   students(classId: string): User[] {
     const cls = classApi.byId(classId);
@@ -220,6 +234,7 @@ export const courseApi = {
       });
       audit('u-admin', 'lesson.created', input.title);
     }
+    persist('lessons');
   },
   progress(studentId: string, lessonId: string): number {
     return db.progress[studentId]?.[lessonId] ?? 0;
@@ -227,6 +242,7 @@ export const courseApi = {
   setProgress(studentId: string, lessonId: string, pct: number): void {
     db.progress[studentId] = db.progress[studentId] ?? {};
     db.progress[studentId][lessonId] = Math.max(db.progress[studentId][lessonId] ?? 0, pct);
+    persistProgress();
   },
 };
 
@@ -263,9 +279,11 @@ export const questionApi = {
       });
       audit('u-admin', 'question.created', input.stem.slice(0, 40));
     }
+    persist('questions');
   },
   remove(id: string): void {
     db.questions = db.questions.filter((q) => q.id !== id);
+    persist('questions');
   },
 };
 
@@ -299,6 +317,7 @@ export const assessmentApi = {
       });
       audit('u-admin', 'quiz.created', input.title);
     }
+    persist('quizzes');
   },
   saveAssignment(input: Partial<Database['assignments'][number]> & { courseId: string; title: string }): void {
     if (input.id) {
@@ -312,6 +331,7 @@ export const assessmentApi = {
       });
       audit('u-admin', 'assignment.created', input.title);
     }
+    persist('assignments');
   },
   /** Student submits a quiz; auto-graded (essays flagged for manual grading). */
   submitQuiz(studentId: string, quizId: string, answers: Record<string, unknown>): { total: number; max: number; results: Record<string, GradeResult>; needsManual: string[] } {
@@ -335,6 +355,9 @@ export const assessmentApi = {
     upsertGradebook(cls.id, studentId, quizId, 'quiz', quiz.title, graded.total, graded.max);
     // notify
     createNotification(studentId, 'grade', 'Quiz graded', `${quiz.title}: ${graded.total}/${graded.max}`);
+    persist('submissions');
+    persist('gradebook');
+    persist('notifications');
     return graded;
   },
   submitAssignment(studentId: string, assignmentId: string, note: string): void {
@@ -354,6 +377,8 @@ export const assessmentApi = {
     }
     audit(studentId, 'assignment.submitted', asg.title);
     createNotification(studentId, 'assignment', 'Assignment submitted', `${asg.title} — awaiting grading`);
+    persist('submissions');
+    persist('notifications');
   },
   submissionsForAssessment(assessmentId: string) {
     return db.submissions.filter((s) => s.assessmentId === assessmentId);
@@ -373,6 +398,9 @@ export const assessmentApi = {
       sub.assessmentKind === 'quiz' ? db.quizzes.find((q) => q.id === sub.assessmentId)?.title ?? 'Assessment' : 'Assignment',
       score, sub.maxScore);
     createNotification(sub.studentId, 'grade', 'Feedback posted', `New feedback on ${sub.assessmentId}: ${score}/${sub.maxScore}`);
+    persist('submissions');
+    persist('gradebook');
+    persist('notifications');
   },
 };
 
@@ -386,6 +414,7 @@ function upsertGradebook(classId: string, studentId: string, assessmentId: strin
   } else {
     db.gradebook.push({ id: `gb-${classId}-${studentId}-${assessmentId}`, classId, studentId, assessmentId, title, type: type as never, score, maxScore, date: new Date().toISOString().slice(0, 10) });
   }
+  persist('gradebook');
 }
 
 /* ----------------------------------- gradebook ------------------------------ */
@@ -427,6 +456,7 @@ export const attendanceApi = {
     if (rec) rec.status = status;
     else db.attendance.push({ id: `att-${classId}-${studentId}-${date}`, classId, studentId, date, status });
     audit(actorId, 'attendance.updated', `${classId} ${date} ${studentId} ${status}`);
+    persist('attendance');
   },
   classRate(classId: string): number {
     const rows = db.attendance.filter((a) => a.classId === classId);
@@ -455,6 +485,7 @@ export const liveApi = {
       teacherId: input.teacherId, joinedStudentIds: [],
     });
     audit(input.teacherId, 'live.scheduled', input.title);
+    persist('liveSessions');
   },
   /** Joining auto-marks attendance and records a notification. */
   join(sessionId: string, studentId: string): void {
@@ -468,6 +499,8 @@ export const liveApi = {
       }
       createNotification(studentId, 'assignment', 'Attendance marked', `Joined "${s.title}" — attendance marked present.`);
       audit(studentId, 'live.joined', s.title);
+      persist('liveSessions');
+      persist('attendance');
     }
   },
 };
@@ -493,11 +526,13 @@ export const messageApi = {
   send(fromId: string, toId: string, content: string): void {
     db.messages.push({ id: `m${Date.now()}`, fromId, toId, content, at: new Date().toISOString(), read: false });
     audit(fromId, 'message.sent', `→ ${toId}`);
+    persist('messages');
   },
   markRead(userId: string, partnerId: string): void {
     for (const m of db.messages) {
       if (m.toId === userId && m.fromId === partnerId) m.read = true;
     }
+    persist('messages');
   },
   all(): Database['messages'] {
     return [...db.messages].sort((a, b) => b.at.localeCompare(a.at));
@@ -526,12 +561,14 @@ export const announcementApi = {
       at: new Date().toISOString(), byId,
     });
     audit(byId, 'announcement.posted', input.title);
+    persist('announcements');
   },
 };
 
 /* --------------------------------- notifications ---------------------------- */
 export function createNotification(userId: string, type: Database['notifications'][number]['type'], title: string, body: string) {
   db.notifications.push({ id: `n${Date.now()}`, userId, type, title, body, at: new Date().toISOString(), read: false });
+  persist('notifications');
 }
 
 export const notificationApi = {
@@ -541,9 +578,11 @@ export const notificationApi = {
   markRead(id: string): void {
     const n = db.notifications.find((x) => x.id === id);
     if (n) n.read = true;
+    persist('notifications');
   },
   markAllRead(userId: string): void {
     for (const n of db.notifications) if (n.userId === userId) n.read = true;
+    persist('notifications');
   },
 };
 
@@ -613,13 +652,28 @@ export const settingsApi = {
   update(patch: Partial<Database['settings']>): void {
     Object.assign(db.settings, patch);
     audit('u-admin', 'settings.updated', JSON.stringify(patch));
+    persist('settings');
   },
   auditLogs: () => [...db.auditLogs].sort((a, b) => b.at.localeCompare(a.at)),
   resetDemo: () => {
     resetDatabase();
     logSeq = db.auditLogs.length;
+    // Re-persist the freshly seeded data to Supabase.
+    for (const key of ['users','curricula','grades','classes','topics','learningOutcomes','courses','lessons','questions','quizzes','assignments','submissions','gradebook','attendance','liveSessions','messages','announcements','notifications','settings']) {
+      persist(key as 'users');
+    }
   },
 };
+
+
+/** Persist lesson progress (keyed by student, so write each as its own row). */
+function persistProgress(): void {
+  if (!supabaseEnabled) return;
+  const rows = Object.entries(db.progress).map(([studentId, map]) => ({
+    collection: 'progress', id: studentId, data: { studentId, progress: map },
+  }));
+  void saveCollection('progress', rows as unknown as { id: string }[]);
+}
 
 /** Helper used by report exporters. */
 export function exportCsv(rows: (string | number)[][]): string {

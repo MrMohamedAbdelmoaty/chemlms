@@ -389,7 +389,9 @@ export type DeliverableJobStatus = 'draft' | 'ready' | 'running' | 'delivered' |
  * The job captures the chosen deliverable type, the attached base files and
  * lesson file, and the handoff notes. The actual generation is executed by the
  * agent (via Arena) following the master prompt, and the status + progress are
- * updated as the wizard progresses (0–100).
+ * updated as the wizard progresses (0–100). `stage` shows what is happening now
+ * and `progressLog` keeps the completed steps, so the UI can show live progress
+ * and what the agent is currently doing.
  */
 export interface DeliverableJob {
   id: string;
@@ -401,6 +403,10 @@ export interface DeliverableJob {
   status: DeliverableJobStatus;
   /** Progress 0–100, updated as the agent executes the wizard. */
   progress: number;
+  /** Human-readable description of the current step (what is happening now). */
+  stage: string;
+  /** Completed steps log, oldest first — shown to track progress step by step. */
+  progressLog: { text: string; at: string }[];
   createdBy: string;
   at: string;
 }

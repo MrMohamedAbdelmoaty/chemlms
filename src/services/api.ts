@@ -1347,19 +1347,37 @@ export const deliverableApi = {
       id: `job-${Date.now().toString(36)}`,
       type: input.type, title: input.title, notes: input.notes,
       baseFileIds: input.baseFileIds, lessonFileIds: input.lessonFileIds,
-      status: 'running', progress: 0, createdBy: input.actorId, at: new Date().toISOString(),
+      status: 'running', progress: 0, stage: 'Starting…', progressLog: [],
+      createdBy: input.actorId, at: new Date().toISOString(),
     };
     db.deliverables.push(job);
     audit(input.actorId, 'deliverable.job_created', `${input.type}: ${input.title}`);
     persist('deliverables');
     return job;
   },
-  /** Update a job's status / notes / progress (used as the wizard progresses). */
-  updateJob(id: string, patch: Partial<Pick<DeliverableJob, 'status' | 'notes' | 'title' | 'progress' | 'type'>>, actorId: string): void {
+  /** Update a job's status / notes / progress / stage (used as the wizard progresses). */
+  updateJob(id: string, patch: Partial<Pick<DeliverableJob, 'status' | 'notes' | 'title' | 'progress' | 'type' | 'stage'>>, actorId: string): void {
     const job = db.deliverables.find((d): d is DeliverableJob => d.id === id);
     if (!job) return;
     Object.assign(job, patch);
     audit(actorId, 'deliverable.job_updated', `${id}: ${patch.status ?? `${patch.progress ?? ''}%`}`);
+    persist('deliverables');
+  },
+  /**
+   * Report progress for a running job — updates the percentage, the current
+   * stage description, and appends a step to the progress log. This is the
+   * method the agent calls as it executes, so the UI shows live progress and
+   * what is happening step by step.
+   */
+  updateJobProgress(id: string, progress: number, stage: string, logText?: string, actorId = 'u-admin'): void {
+    const job = db.deliverables.find((d): d is DeliverableJob => d.id === id);
+    if (!job) return;
+    job.progress = Math.max(0, Math.min(100, progress));
+    job.stage = stage;
+    if (logText) {
+      job.progressLog.push({ text: logText, at: new Date().toISOString() });
+    }
+    audit(actorId, 'deliverable.job_progress', `${id}: ${job.progress}% — ${stage}`);
     persist('deliverables');
   },
   /** Cancel a running job (sets status to 'cancelled', freezes progress). */

@@ -381,14 +381,39 @@ function JobRow({ job, onCancel, onEdit }: { job: DeliverableJob; onCancel: () =
       {job.status === 'running' && (
         <div className="mt-2">
           <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-            <span>Working…</span>
+            <span className="font-medium text-brand-600 dark:text-brand-400">{job.stage}</span>
             <span>{job.progress}%</span>
           </div>
           <ProgressBar value={job.progress} tone="brand" />
+          {job.progressLog.length > 0 && (
+            <div className="mt-2 max-h-28 overflow-y-auto rounded-md bg-slate-50 p-2 dark:bg-slate-900/50">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400">Step log</p>
+              <ul className="space-y-0.5">
+                {job.progressLog.map((l, i) => (
+                  <li key={i} className="flex gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    <span className="text-emerald-500">✓</span>
+                    <span>{l.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
       {job.status === 'delivered' && job.progress >= 100 && (
         <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ Completed (100%)</div>
+      )}
+      {job.status === 'delivered' && job.progressLog.length > 0 && (
+        <div className="mt-2 max-h-28 overflow-y-auto rounded-md bg-slate-50 p-2 dark:bg-slate-900/50">
+          <ul className="space-y-0.5">
+            {job.progressLog.map((l, i) => (
+              <li key={i} className="flex gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                <span className="text-emerald-500">✓</span>
+                <span>{l.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

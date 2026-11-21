@@ -15,4 +15,9 @@ export default defineConfig({
   // Same for the production preview server (`npm run preview`) so the
   // e2b.app proxy host is allowed to reach it.
   preview: { host: '0.0.0.0', port: 4173, allowedHosts: true },
+  build: {
+    // The full app bundle is large (chemistry tools, virtual lab, studio), so
+    // raise the size threshold above the actual bundle to avoid the warning.
+    chunkSizeWarningLimit: 900,
+  },
 });

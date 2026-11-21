@@ -25,6 +25,7 @@ const NAV: Record<Role, NavItem[]> = {
     { key: 'gradebook', labelKey: 'gradebook', icon: '📒' },
     { key: 'attendance', labelKey: 'attendance', icon: '✅' },
     { key: 'chemistry', labelKey: 'chemistryLab', icon: '⚗️' },
+    { key: 'chem', labelKey: 'chemTools', icon: '🧪' },
     { key: 'videos', labelKey: 'videos', icon: '🎬' },
     { key: 'users', labelKey: 'users', icon: '👥' },
     { key: 'classes', labelKey: 'classes', icon: '🏫' },
@@ -109,7 +110,7 @@ export default function App() {
         {user.role === 'teacher' && <TeacherDashboard teacher={user} view={effectiveView} setView={setView} />}
         {user.role === 'student' && <StudentDashboard student={user} view={effectiveView} setView={setView} />}
         {user.role === 'parent' && <ParentDashboard parent={user} view={effectiveView} setView={setView} />}
-        {(user.role === 'teacher' || user.role === 'student') && effectiveView === 'chem' && <ChemTools />}
+        {(user.role === 'teacher' || user.role === 'student' || user.role === 'admin') && effectiveView === 'chem' && <ChemTools />}
       </AppShell>
       <Toasts />
     </>

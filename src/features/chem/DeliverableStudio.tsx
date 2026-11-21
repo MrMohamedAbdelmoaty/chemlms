@@ -95,8 +95,8 @@ export function DeliverableStudio() {
     for (const file of Array.from(files)) {
       try {
         await deliverableApi.uploadFile(folder, file, actorId);
-      } catch {
-        toast(`Failed to upload ${file.name}`, 'error');
+      } catch (e) {
+        toast(e instanceof Error ? e.message : `Failed to upload ${file.name}`, 'error');
       }
     }
     toast(`Uploaded ${files.length} file(s)`, 'success');

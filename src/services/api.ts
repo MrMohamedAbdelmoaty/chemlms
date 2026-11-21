@@ -1261,6 +1261,13 @@ export const videosApi = {
  */
 const MASTER_PROMPT_ID = 'master-prompt';
 
+/** Files larger than this are NEVER stored as base64 in app_data — doing so
+ *  makes the app_data.deliverables payload balloon (the app hydrates the whole
+ *  collection on load, so a multi-MB base64 row stalls/breaks the Deliverables
+ *  page). Such files must go to Supabase Storage; if Storage isn't available we
+ *  reject the upload so nothing broken gets persisted. */
+const MAX_BASE64_FALLBACK = 1024 * 1024; // 1 MB
+
 /** Upload a file to the studio (Supabase Storage preferred, base64 fallback). */
 async function uploadStudioFile(folder: 'base' | 'lesson', file: File): Promise<StudioFile> {
   try {
@@ -1272,7 +1279,13 @@ async function uploadStudioFile(folder: 'base' | 'lesson', file: File): Promise<
       sizeBytes: file.size, mimeType: file.type || 'application/octet-stream',
       at: new Date().toISOString(),
     };
-  } catch {
+  } catch (storageErr) {
+    // Storage unavailable (e.g. the "videos" bucket doesn't exist yet).
+    if (file.size > MAX_BASE64_FALLBACK) {
+      throw new Error(
+        `Could not upload "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)} MB). Large files must be stored in Supabase Storage — please create the "videos" bucket in the Supabase dashboard (Storage → New bucket → name "videos", Public), then retry.`
+      );
+    }
     const dataUrl = await readAsDataUrl(file);
     return {
       id: `sf-${Date.now().toString(36)}`, folder, name: file.name,

@@ -111,8 +111,13 @@ export async function hydrateFromSupabase(): Promise<boolean> {
       return false; // nothing loaded (just seeded)
     }
     // Replace the in-memory collections with the persisted ones.
-    for (const key of PERSISTED) {
-      const rows = await fetchCollection(key as string);
+    // Fetch every collection in PARALLEL — the sequential loop was slow
+    // (especially now that `deliverables` holds the master prompt + base64
+    // files), and blocked first paint.
+    const results = await Promise.all(
+      PERSISTED.map((key) => fetchCollection(key as string).then((rows) => ({ key, rows }))),
+    );
+    for (const { key, rows } of results) {
       if (!rows.length) continue;
       if (key === 'settings') {
         (db.settings as unknown) = rows[0];

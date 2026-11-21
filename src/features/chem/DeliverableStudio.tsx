@@ -15,11 +15,11 @@
  *   4. Generate        — pick a deliverable type, title, notes, press Generate.
  *   5. Jobs            — history of generation jobs with status.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { deliverableApi } from '../../services/api';
 import {
-  Badge, Button, Card, EmptyState, Field, Input, Textarea, SectionTitle,
+  Badge, Button, Card, EmptyState, Field, Input, Textarea, SectionTitle, ProgressBar, Modal, Select,
 } from '../../components/ui';
 import type { DeliverableType, DeliverableJob } from '../../types';
 
@@ -58,6 +58,10 @@ export function DeliverableStudio() {
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [handoff, setHandoff] = useState<string | null>(null);
+  const [editing, setEditing] = useState<DeliverableJob | null>(null);
+  const [editType, setEditType] = useState<DeliverableType>('quiz');
+  const [editTitle, setEditTitle] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   const refresh = () => {
     setBaseFiles(deliverableApi.files('base'));
@@ -65,6 +69,18 @@ export function DeliverableStudio() {
     setJobs(deliverableApi.listJobs());
     setResults(deliverableApi.allResults());
   };
+
+  // Poll jobs + results while any job is still running, so the progress bar
+  // and results update live as the agent executes the wizard.
+  const hasRunning = jobs.some((j) => j.status === 'running');
+  useEffect(() => {
+    if (!hasRunning) return;
+    const t = setInterval(() => {
+      setJobs(deliverableApi.listJobs());
+      setResults(deliverableApi.allResults());
+    }, 2500);
+    return () => clearInterval(t);
+  }, [hasRunning]);
 
   const savePrompt = () => {
     if (!prompt.trim()) { toast('Master prompt is empty', 'error'); return; }
@@ -107,6 +123,29 @@ export function DeliverableStudio() {
     setJobs(deliverableApi.listJobs());
     setHandoff(job.id);
     toast('Generation started — handing off to the agent', 'success');
+  };
+
+  const cancelJob = (job: DeliverableJob) => {
+    if (!confirm(`Cancel job "${job.title}"? This stops the generation.`)) return;
+    deliverableApi.cancelJob(job.id, actorId);
+    setHandoff(null);
+    toast('Job cancelled', 'success');
+    refresh();
+  };
+
+  const openEdit = (job: DeliverableJob) => {
+    setEditing(job);
+    setEditType(job.type);
+    setEditTitle(job.title);
+    setEditNotes(job.notes);
+  };
+
+  const saveEdit = () => {
+    if (!editing) return;
+    deliverableApi.updateJob(editing.id, { type: editType, title: editTitle.trim(), notes: editNotes }, actorId);
+    toast('Job updated', 'success');
+    setEditing(null);
+    refresh();
   };
 
   return (
@@ -205,7 +244,12 @@ export function DeliverableStudio() {
                   <EmptyState>No jobs yet — press Generate to start one.</EmptyState>
                 ) : (
                   <div className="space-y-2">
-                    {jobs.map((j) => <JobRow key={j.id} job={j} />)}
+                    {jobs.map((j) => (
+                      <JobRow key={j.id} job={j}
+                        onCancel={() => cancelJob(j)}
+                        onEdit={() => openEdit(j)}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -247,6 +291,29 @@ export function DeliverableStudio() {
               </div>
             )}
           </section>
+
+          {/* Edit job modal */}
+          {editing && (
+            <Modal open onClose={() => setEditing(null)} title="Edit job">
+              <div className="grid gap-3">
+                <Field label="Deliverable type">
+                  <Select value={editType} onChange={(e) => setEditType(e.target.value as DeliverableType)}>
+                    {DELIVERABLES.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Title">
+                  <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                </Field>
+                <Field label="Notes">
+                  <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={3} />
+                </Field>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                  <Button onClick={saveEdit}>Save changes</Button>
+                </div>
+              </div>
+            </Modal>
+          )}
         </div>
       </Card>
     </div>
@@ -289,19 +356,40 @@ function FileSection({
   );
 }
 
-/** A job row in the history list. */
-function JobRow({ job }: { job: DeliverableJob }) {
+/** A job row in the history list — progress bar, cancel and edit actions. */
+function JobRow({ job, onCancel, onEdit }: { job: DeliverableJob; onCancel: () => void; onEdit: () => void }) {
   const label = DELIVERABLES.find((d) => d.code === job.type)?.label ?? job.type;
   const tone = job.status === 'delivered' ? 'green'
     : job.status === 'running' ? 'amber'
+    : job.status === 'cancelled' ? 'red'
     : 'slate';
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{job.title}</p>
-        <p className="text-xs text-slate-500">{label} · {new Date(job.at).toLocaleString()}</p>
+    <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{job.title}</p>
+          <p className="text-xs text-slate-500">{label} · {new Date(job.at).toLocaleString()}</p>
+        </div>
+        <div className="flex shrink-0 gap-1">
+          <Button variant="ghost" className="h-7 text-xs" onClick={onEdit}>Edit</Button>
+          {job.status === 'running' && (
+            <Button variant="ghost" className="h-7 text-xs text-rose-600" onClick={onCancel}>Cancel</Button>
+          )}
+          <Badge tone={tone as 'slate' | 'green' | 'amber' | 'red'}>{job.status}</Badge>
+        </div>
       </div>
-      <Badge tone={tone as 'slate' | 'green' | 'amber'}>{job.status}</Badge>
+      {job.status === 'running' && (
+        <div className="mt-2">
+          <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+            <span>Working…</span>
+            <span>{job.progress}%</span>
+          </div>
+          <ProgressBar value={job.progress} tone="brand" />
+        </div>
+      )}
+      {job.status === 'delivered' && job.progress >= 100 && (
+        <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ Completed (100%)</div>
+      )}
     </div>
   );
 }

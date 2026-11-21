@@ -1347,19 +1347,27 @@ export const deliverableApi = {
       id: `job-${Date.now().toString(36)}`,
       type: input.type, title: input.title, notes: input.notes,
       baseFileIds: input.baseFileIds, lessonFileIds: input.lessonFileIds,
-      status: 'running', createdBy: input.actorId, at: new Date().toISOString(),
+      status: 'running', progress: 0, createdBy: input.actorId, at: new Date().toISOString(),
     };
     db.deliverables.push(job);
     audit(input.actorId, 'deliverable.job_created', `${input.type}: ${input.title}`);
     persist('deliverables');
     return job;
   },
-  /** Update a job's status / notes (used as the wizard progresses). */
-  updateJob(id: string, patch: Partial<Pick<DeliverableJob, 'status' | 'notes' | 'title'>>, actorId: string): void {
+  /** Update a job's status / notes / progress (used as the wizard progresses). */
+  updateJob(id: string, patch: Partial<Pick<DeliverableJob, 'status' | 'notes' | 'title' | 'progress' | 'type'>>, actorId: string): void {
     const job = db.deliverables.find((d): d is DeliverableJob => d.id === id);
     if (!job) return;
     Object.assign(job, patch);
-    audit(actorId, 'deliverable.job_updated', `${id}: ${patch.status ?? ''}`);
+    audit(actorId, 'deliverable.job_updated', `${id}: ${patch.status ?? `${patch.progress ?? ''}%`}`);
+    persist('deliverables');
+  },
+  /** Cancel a running job (sets status to 'cancelled', freezes progress). */
+  cancelJob(id: string, actorId: string): void {
+    const job = db.deliverables.find((d): d is DeliverableJob => d.id === id);
+    if (!job) return;
+    job.status = 'cancelled';
+    audit(actorId, 'deliverable.job_cancelled', `${id}: ${job.title}`);
     persist('deliverables');
   },
 

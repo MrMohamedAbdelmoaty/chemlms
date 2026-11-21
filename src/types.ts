@@ -382,14 +382,14 @@ export type DeliverableType =
   | 'booklet'        // [H] Final Revision Booklet
   | 'night-revision'; // [I] Exam-Night Revision
 
-export type DeliverableJobStatus = 'draft' | 'ready' | 'running' | 'delivered';
+export type DeliverableJobStatus = 'draft' | 'ready' | 'running' | 'delivered' | 'cancelled';
 
 /**
  * A deliverable-generation job — created when the teacher presses "Generate".
  * The job captures the chosen deliverable type, the attached base files and
  * lesson file, and the handoff notes. The actual generation is executed by the
- * agent (via Arena) following the master prompt, and the status is updated as
- * the wizard progresses.
+ * agent (via Arena) following the master prompt, and the status + progress are
+ * updated as the wizard progresses (0–100).
  */
 export interface DeliverableJob {
   id: string;
@@ -399,6 +399,8 @@ export interface DeliverableJob {
   lessonFileIds: string[];
   notes: string;
   status: DeliverableJobStatus;
+  /** Progress 0–100, updated as the agent executes the wizard. */
+  progress: number;
   createdBy: string;
   at: string;
 }

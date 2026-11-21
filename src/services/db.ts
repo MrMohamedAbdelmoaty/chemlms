@@ -19,7 +19,7 @@ const PERSISTED: (keyof Database)[] = [
   'users', 'curricula', 'grades', 'classes', 'topics', 'learningOutcomes',
   'courses', 'lessons', 'questions', 'quizzes', 'assignments', 'submissions',
   'gradebook', 'attendance', 'liveSessions', 'messages', 'announcements',
-  'notifications', 'auditLogs', 'settings', 'chemData', 'videos',
+  'notifications', 'auditLogs', 'settings', 'chemData', 'videos', 'deliverables',
 ] as (keyof Database)[];
 
 /** Rebuild the database from seed (used by the "Reset demo data" action). */

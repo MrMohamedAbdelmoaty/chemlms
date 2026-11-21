@@ -348,6 +348,73 @@ export interface AssignmentFile {
 }
 
 /**
+ * Deliverable Studio — files uploaded to the "file extraction / deliverable
+ * generation" studio. The teacher uploads base/template files (PDFs, etc.) and
+ * a lesson file; these are fed to the master prompt when a deliverable is
+ * generated. Stored in Supabase Storage (permanent) with base64 fallback.
+ */
+export interface StudioFile {
+  id: string;
+  /** Bucket folder: 'base' for template/base files, 'lesson' for lesson content. */
+  folder: 'base' | 'lesson';
+  name: string;
+  /** Supabase Storage object path (primary — supports large files). */
+  storagePath?: string;
+  /** Public URL of the stored object (derived from storagePath). */
+  storageUrl?: string;
+  /** Base64 data URL — fallback when Storage is not configured. */
+  dataUrl?: string;
+  /** Which storage mechanism holds the file. */
+  storageProvider: 'storage' | 'base64';
+  sizeBytes: number;
+  mimeType: string;
+  at: string;
+}
+
+/** Deliverable types supported by the studio (maps to the master prompt wizard). */
+export type DeliverableType =
+  | 'summary'        // [A] Comprehensive Summary
+  | 'worksheet'      // [B] Lesson Worksheet
+  | 'quiz'           // [C] Lesson Quiz (20 Marks)
+  | 'exam'           // [D] Unit Exam (40 Marks)
+  | 'lesson-plan'    // [E] Professional Lesson Plan
+  | 'full-package'   // [F] Full Lesson Package
+  | 'booklet'        // [H] Final Revision Booklet
+  | 'night-revision'; // [I] Exam-Night Revision
+
+export type DeliverableJobStatus = 'draft' | 'ready' | 'running' | 'delivered';
+
+/**
+ * A deliverable-generation job — created when the teacher presses "Generate".
+ * The job captures the chosen deliverable type, the attached base files and
+ * lesson file, and the handoff notes. The actual generation is executed by the
+ * agent (via Arena) following the master prompt, and the status is updated as
+ * the wizard progresses.
+ */
+export interface DeliverableJob {
+  id: string;
+  type: DeliverableType;
+  title: string;
+  baseFileIds: string[];
+  lessonFileIds: string[];
+  notes: string;
+  status: DeliverableJobStatus;
+  createdBy: string;
+  at: string;
+}
+
+/**
+ * The master prompt — the fixed prompt that drives all deliverable generation.
+ * Stored once and reused for every job.
+ */
+export interface MasterPromptConfig {
+  id: string;        // fixed id 'master-prompt'
+  prompt: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+/**
  * Editable chemistry reference data — the admin can add / edit / delete
  * elements, preset equations and constants so the chemistry tools respond to
  * real platform data instead of a static dataset.
@@ -403,6 +470,8 @@ export interface Database {
   chemData: ChemData;
   /** Uploaded videos (base64 data URLs — permanent, in Supabase) */
   videos: Video[];
+  /** Deliverable Studio: master prompt, base/lesson files and generation jobs */
+  deliverables: (StudioFile | DeliverableJob | MasterPromptConfig)[];
 }
 
 /** Auth result returned by the mock auth service. */

@@ -14,6 +14,7 @@ import { gradeAll, type GradeResult } from './grading';
 import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
 import type {
   AuthResult, Role, User, Database, Video, AssignmentFile,
+  StudioFile, DeliverableJob, DeliverableType, MasterPromptConfig,
 } from '../types';
 
 let logSeq = db.auditLogs.length;
@@ -1245,6 +1246,121 @@ export const videosApi = {
     }
     audit(actorId, 'video.deleted', v?.title ?? id);
     persist('videos');
+  },
+};
+
+/* ------------------------------- deliverable studio ------------------------- */
+/**
+ * Deliverable Studio (file extraction / generation).
+ *
+ * The teacher stores the master prompt once, uploads base/template files and a
+ * lesson file, then presses "Generate". The actual deliverable generation is
+ * executed by the agent (via Arena) following the master prompt's interactive
+ * wizard. This service persists the prompt, the files and the job records so
+ * everything is permanent and reproducible.
+ */
+const MASTER_PROMPT_ID = 'master-prompt';
+
+/** Upload a file to the studio (Supabase Storage preferred, base64 fallback). */
+async function uploadStudioFile(folder: 'base' | 'lesson', file: File): Promise<StudioFile> {
+  try {
+    const path = `${folder}/${Date.now().toString(36)}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { path: storedPath, url } = await uploadToStorage(path, file, file.type || 'application/octet-stream');
+    return {
+      id: `sf-${Date.now().toString(36)}`, folder, name: file.name,
+      storagePath: storedPath, storageUrl: url, storageProvider: 'storage',
+      sizeBytes: file.size, mimeType: file.type || 'application/octet-stream',
+      at: new Date().toISOString(),
+    };
+  } catch {
+    const dataUrl = await readAsDataUrl(file);
+    return {
+      id: `sf-${Date.now().toString(36)}`, folder, name: file.name,
+      dataUrl, storageProvider: 'base64',
+      sizeBytes: file.size, mimeType: file.type || 'application/octet-stream',
+      at: new Date().toISOString(),
+    };
+  }
+}
+
+export const deliverableApi = {
+  /* ---- master prompt ---- */
+  getMasterPrompt(): MasterPromptConfig | undefined {
+    return db.deliverables.find((d): d is MasterPromptConfig => (d as MasterPromptConfig).id === MASTER_PROMPT_ID);
+  },
+  saveMasterPrompt(text: string, actorId: string): MasterPromptConfig {
+    const cfg: MasterPromptConfig = {
+      id: MASTER_PROMPT_ID, prompt: text, updatedBy: actorId, updatedAt: new Date().toISOString(),
+    };
+    const idx = db.deliverables.findIndex((d) => (d as MasterPromptConfig).id === MASTER_PROMPT_ID);
+    if (idx >= 0) db.deliverables[idx] = cfg;
+    else db.deliverables.push(cfg);
+    audit(actorId, 'deliverable.master_prompt_saved', `${text.length} chars`);
+    persist('deliverables');
+    return cfg;
+  },
+
+  /* ---- studio files ---- */
+  /** Upload a file into the studio (folder: 'base' or 'lesson'). */
+  async uploadFile(folder: 'base' | 'lesson', file: File, actorId: string): Promise<StudioFile> {
+    const sf = await uploadStudioFile(folder, file);
+    db.deliverables.push(sf);
+    audit(actorId, 'deliverable.file_uploaded', `${folder}/${sf.name}`);
+    persist('deliverables');
+    return sf;
+  },
+  /** List studio files for a folder. */
+  files(folder: 'base' | 'lesson'): StudioFile[] {
+    return db.deliverables
+      .filter((d): d is StudioFile => 'folder' in d && d.id.startsWith('sf-') && d.folder === folder)
+      .sort((a, b) => b.at.localeCompare(a.at));
+  },
+  /** All base + lesson files together. */
+  allFiles(): StudioFile[] {
+    return db.deliverables.filter((d): d is StudioFile => d.id.startsWith('sf-'));
+  },
+  /** Delete a studio file (and its stored object if applicable). */
+  removeFile(id: string, actorId: string): void {
+    const f = db.deliverables.find((d): d is StudioFile => d.id === id);
+    if (!f) return;
+    if (f.storagePath) void deleteFromStorage(f.storagePath).catch(() => {});
+    db.deliverables = db.deliverables.filter((d) => d.id !== id);
+    audit(actorId, 'deliverable.file_deleted', f.name);
+    persist('deliverables');
+  },
+
+  /* ---- jobs ---- */
+  listJobs(): DeliverableJob[] {
+    return db.deliverables
+      .filter((d): d is DeliverableJob => d.id.startsWith('job-'))
+      .sort((a, b) => b.at.localeCompare(a.at));
+  },
+  job(id: string): DeliverableJob | undefined {
+    return db.deliverables.find((d): d is DeliverableJob => d.id === id);
+  },
+  /** Create a generation job when the teacher presses "Generate". */
+  createJob(input: {
+    type: DeliverableType; title: string; notes: string;
+    baseFileIds: string[]; lessonFileIds: string[]; actorId: string;
+  }): DeliverableJob {
+    const job: DeliverableJob = {
+      id: `job-${Date.now().toString(36)}`,
+      type: input.type, title: input.title, notes: input.notes,
+      baseFileIds: input.baseFileIds, lessonFileIds: input.lessonFileIds,
+      status: 'running', createdBy: input.actorId, at: new Date().toISOString(),
+    };
+    db.deliverables.push(job);
+    audit(input.actorId, 'deliverable.job_created', `${input.type}: ${input.title}`);
+    persist('deliverables');
+    return job;
+  },
+  /** Update a job's status / notes (used as the wizard progresses). */
+  updateJob(id: string, patch: Partial<Pick<DeliverableJob, 'status' | 'notes' | 'title'>>, actorId: string): void {
+    const job = db.deliverables.find((d): d is DeliverableJob => d.id === id);
+    if (!job) return;
+    Object.assign(job, patch);
+    audit(actorId, 'deliverable.job_updated', `${id}: ${patch.status ?? ''}`);
+    persist('deliverables');
   },
 };
 

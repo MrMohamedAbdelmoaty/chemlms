@@ -4,6 +4,7 @@
  * molecule viewer, virtual lab and the lab-safety module.
  */
 import { useState } from 'react';
+import { useApp } from '../../context/AppContext';
 import { PeriodicTable } from './PeriodicTable';
 import { EquationBalancer } from './EquationBalancer';
 import { Calculators } from './Calculators';
@@ -12,9 +13,10 @@ import { VirtualLab } from './VirtualLab';
 import { VideoLibrary } from './VideoLibrary';
 import { LabSafety } from './LabSafety';
 import { NotationPlayground } from './KaTeXText';
+import { DeliverableStudio } from './DeliverableStudio';
 import { Card } from '../../components/ui';
 
-type Tool = 'table' | 'notation' | 'balancer' | 'calcs' | 'molecules' | 'lab' | 'videos' | 'safety';
+type Tool = 'table' | 'notation' | 'balancer' | 'calcs' | 'molecules' | 'lab' | 'videos' | 'safety' | 'studio';
 
 const TABS: [Tool, string, string][] = [
   ['table', 'Periodic table', '🧪'],
@@ -25,17 +27,22 @@ const TABS: [Tool, string, string][] = [
   ['lab', 'Virtual lab', '🔬'],
   ['videos', 'Videos', '🎬'],
   ['safety', 'Lab safety', '⚠️'],
+  ['studio', 'Deliverables', '📄'],
 ];
 
 export function ChemTools() {
   const [tool, setTool] = useState<Tool>('table');
   const [equation, setEquation] = useState('');
+  const { user } = useApp();
+  // The Deliverable Studio is a teacher/admin tool — hide it from students.
+  const canStudio = user?.role === 'admin' || user?.role === 'teacher';
+  const tabs = canStudio ? TABS : TABS.filter((t) => t[0] !== 'studio');
 
   return (
     <div className="space-y-4">
       <Card>
         <div className="flex flex-wrap gap-2">
-          {TABS.map(([key, label, icon]) => (
+          {tabs.map(([key, label, icon]) => (
             <button key={key} type="button" onClick={() => setTool(key)}
               className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                 tool === key ? 'bg-brand-600 text-white shadow-sm'
@@ -63,6 +70,7 @@ export function ChemTools() {
       {tool === 'lab' && <VirtualLab onOpenVideos={() => setTool('videos')} />}
       {tool === 'videos' && <VideoLibrary />}
       {tool === 'safety' && <LabSafety />}
+      {tool === 'studio' && <DeliverableStudio />}
     </div>
   );
 }

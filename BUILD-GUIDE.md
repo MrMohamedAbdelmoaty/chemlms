@@ -218,6 +218,15 @@ src/
 - الملف يُرفع لـ Supabase Storage (مع fallback base64).
 - المدرس ينزل الملف من جدول الدرجات.
 
+### 9.4 Deliverable Studio (استخراج الملفات) — `src/features/chem/DeliverableStudio.tsx`
+- أداة لتوليد الـ deliverables (ملفات تعليمية) بناءً على **برومبت ثابت**.
+- **Master Prompt** — يُحفظ مرة واحدة (في Supabase، دائم) ويُستخدم في كل job.
+- **Base files** — ملفات مؤسسة/templates (PDF/DOCX) تُرفع وتُحفظ.
+- **Lesson file** — الدرس المولّد منه الـ deliverable.
+- **Generate** — اختيار نوع الـ deliverable (Summary/Worksheet/Quiz/Exam/Lesson Plan/Full Package/Booklet/Night Revision)، إنشاء job، ثم التنفيذ تفاعليًا بواسطة الـ agent (عبر Arena) الذي يتبع البرومبت بالـ wizard.
+- `deliverableApi` (في `src/services/api.ts`): حفظ البرومبت، رفع/حذف الملفات، إنشاء/تحديث الـ jobs — كلها في collection `deliverables` في Supabase.
+- متاح للمدرس والمدير (مخفي عن الطلاب).
+
 ---
 
 ## 10. تصحيح أسئلة الكيمياء (8 أنواع)

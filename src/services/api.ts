@@ -14,7 +14,7 @@ import { gradeAll, type GradeResult } from './grading';
 import { hashPassword, verifyPassword, normalizePhone, isValidPhone } from './password';
 import type {
   AuthResult, Role, User, Database, Video, AssignmentFile,
-  StudioFile, DeliverableJob, DeliverableType, MasterPromptConfig,
+  StudioFile, DeliverableJob, DeliverableType, MasterPromptConfig, DeliverableResult,
 } from '../types';
 
 let logSeq = db.auditLogs.length;
@@ -1360,6 +1360,73 @@ export const deliverableApi = {
     if (!job) return;
     Object.assign(job, patch);
     audit(actorId, 'deliverable.job_updated', `${id}: ${patch.status ?? ''}`);
+    persist('deliverables');
+  },
+
+  /* ---- generated result files ---- */
+  /**
+   * Save a generated deliverable file (the produced exam/quiz/etc.) and link
+   * it to its job. Stored in Supabase Storage (permanent), with base64
+   * fallback. Accepts a real File or a plain {name, dataUrl, ...} payload.
+   */
+  async saveResultFile(jobId: string, file: File | { name: string; dataUrl: string; mimeType: string; sizeBytes: number }): Promise<DeliverableResult> {
+    let result: DeliverableResult;
+    const isBlob = typeof Blob !== 'undefined' && (file instanceof Blob);
+    if (isBlob) {
+      try {
+        const path = `results/${Date.now().toString(36)}-${(file as File).name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { path: storedPath, url } = await uploadToStorage(path, file, (file as File).type || 'application/octet-stream');
+        result = {
+          id: `res-${Date.now().toString(36)}`, jobId, name: (file as File).name,
+          storagePath: storedPath, storageUrl: url, storageProvider: 'storage',
+          sizeBytes: (file as File).size, mimeType: (file as File).type || 'application/octet-stream',
+          at: new Date().toISOString(),
+        };
+      } catch {
+        const dataUrl = await readAsDataUrl(file);
+        result = {
+          id: `res-${Date.now().toString(36)}`, jobId, name: (file as File).name,
+          dataUrl, storageProvider: 'base64',
+          sizeBytes: (file as File).size, mimeType: (file as File).type || 'application/octet-stream',
+          at: new Date().toISOString(),
+        };
+      }
+    } else {
+      const p = file as { name: string; dataUrl: string; mimeType: string; sizeBytes: number };
+      result = {
+        id: `res-${Date.now().toString(36)}`, jobId, name: p.name,
+        dataUrl: p.dataUrl, storageProvider: 'base64',
+        sizeBytes: p.sizeBytes, mimeType: p.mimeType, at: new Date().toISOString(),
+      };
+    }
+    db.deliverables.push(result);
+    audit('u-admin', 'deliverable.result_saved', `${jobId}: ${result.name}`);
+    persist('deliverables');
+    return result;
+  },
+  /** List result files for a job. */
+  resultsForJob(jobId: string): DeliverableResult[] {
+    return db.deliverables
+      .filter((d): d is DeliverableResult => 'jobId' in d && d.id.startsWith('res-') && d.jobId === jobId)
+      .sort((a, b) => b.at.localeCompare(a.at));
+  },
+  /** All result files (latest first). */
+  allResults(): DeliverableResult[] {
+    return db.deliverables
+      .filter((d): d is DeliverableResult => d.id.startsWith('res-'))
+      .sort((a, b) => b.at.localeCompare(a.at));
+  },
+  /** Resolve the download URL for a result file (storage preferred). */
+  resultUrl(r: DeliverableResult): string {
+    return r.storageUrl ?? r.dataUrl ?? '';
+  },
+  /** Delete a result file (and its stored object if applicable). */
+  removeResult(id: string, actorId: string): void {
+    const r = db.deliverables.find((d): d is DeliverableResult => d.id === id);
+    if (!r) return;
+    if (r.storagePath) void deleteFromStorage(r.storagePath).catch(() => {});
+    db.deliverables = db.deliverables.filter((d) => d.id !== id);
+    audit(actorId, 'deliverable.result_deleted', r.name);
     persist('deliverables');
   },
 };

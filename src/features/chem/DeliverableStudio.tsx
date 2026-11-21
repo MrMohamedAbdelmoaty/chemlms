@@ -45,12 +45,14 @@ function formatSize(bytes: number): string {
 export function DeliverableStudio() {
   const { user, toast } = useApp();
   const actorId = user?.id ?? 'u-admin';
+  const isAdmin = user?.role === 'admin';
 
   const [prompt, setPrompt] = useState(() => deliverableApi.getMasterPrompt()?.prompt ?? '');
   const [promptSaved, setPromptSaved] = useState(() => deliverableApi.getMasterPrompt()?.prompt.length ?? 0);
   const [baseFiles, setBaseFiles] = useState(() => deliverableApi.files('base'));
   const [lessonFiles, setLessonFiles] = useState(() => deliverableApi.files('lesson'));
   const [jobs, setJobs] = useState(() => deliverableApi.listJobs());
+  const [results, setResults] = useState(() => deliverableApi.allResults());
 
   const [type, setType] = useState<DeliverableType>('quiz');
   const [title, setTitle] = useState('');
@@ -61,6 +63,7 @@ export function DeliverableStudio() {
     setBaseFiles(deliverableApi.files('base'));
     setLessonFiles(deliverableApi.files('lesson'));
     setJobs(deliverableApi.listJobs());
+    setResults(deliverableApi.allResults());
   };
 
   const savePrompt = () => {
@@ -110,23 +113,32 @@ export function DeliverableStudio() {
     <div className="space-y-4">
       <Card title="Deliverable Studio" subtitle="Store the master prompt, attach base + lesson files, then generate deliverables.">
         <div className="space-y-6">
-          {/* 1. Master prompt */}
+          {/* 1. Master prompt — admin only */}
           <section>
             <SectionTitle action={
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-500">{promptSaved} chars saved</span>
-                <Button onClick={savePrompt}>Save prompt</Button>
-              </div>
+              isAdmin ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500">{promptSaved} chars saved</span>
+                  <Button onClick={savePrompt}>Save prompt</Button>
+                </div>
+              ) : <Badge tone="violet">Admin only</Badge>
             }>1. Master Prompt</SectionTitle>
-            <Field label="The fixed prompt that drives all deliverable generation (paste once, saved permanently)" hint="This is reused for every job — edit and re-save anytime.">
-              <Textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={10}
-                className="font-mono text-xs"
-                placeholder="Paste the master prompt here…"
-              />
-            </Field>
+            {isAdmin ? (
+              <Field label="The fixed prompt that drives all deliverable generation (paste once, saved permanently)" hint="This is reused for every job — edit and re-save anytime.">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={10}
+                  className="font-mono text-xs"
+                  placeholder="Paste the master prompt here…"
+                />
+              </Field>
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/50">
+                The master prompt is managed by the admin and is not shown here. It is already active
+                for generation — you can attach a lesson file and generate deliverables below.
+              </div>
+            )}
           </section>
 
           {/* 2 & 3. Files */}
@@ -198,6 +210,42 @@ export function DeliverableStudio() {
                 )}
               </div>
             </div>
+          </section>
+
+          {/* 5. Generated files */}
+          <section>
+            <SectionTitle action={<Badge tone="slate">{results.length} file(s)</Badge>}>5. Generated Files</SectionTitle>
+            {results.length === 0 ? (
+              <EmptyState>No generated files yet — after a job is delivered, the produced files appear here, saved permanently with a download link.</EmptyState>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {results.map((r) => {
+                  const job = deliverableApi.job(r.jobId);
+                  return (
+                    <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{r.name}</p>
+                        <p className="text-xs text-slate-500">{formatSize(r.sizeBytes)} · {r.storageProvider} · {job?.title ?? '—'}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <a href={deliverableApi.resultUrl(r)} download={r.name}
+                          className="inline-flex items-center gap-1 rounded bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-900/40 dark:text-brand-300">
+                          ⬇ Download
+                        </a>
+                        {isAdmin && (
+                          <Button variant="ghost" className="h-7 text-xs text-rose-600" onClick={() => {
+                            if (!confirm(`Delete file "${r.name}"?`)) return;
+                            deliverableApi.removeResult(r.id, actorId);
+                            toast('File deleted', 'success');
+                            refresh();
+                          }}>Delete</Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         </div>
       </Card>

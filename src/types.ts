@@ -405,13 +405,35 @@ export interface DeliverableJob {
 
 /**
  * The master prompt — the fixed prompt that drives all deliverable generation.
- * Stored once and reused for every job.
+ * Stored once and reused for every job. Visible/editable to admins only.
  */
 export interface MasterPromptConfig {
   id: string;        // fixed id 'master-prompt'
   prompt: string;
   updatedBy: string;
   updatedAt: string;
+}
+
+/**
+ * A generated deliverable result file — produced when a job is delivered.
+ * Stored in Supabase (permanent) and linked to its job, with a download link
+ * in the studio. The master prompt drives generation; this holds the output.
+ */
+export interface DeliverableResult {
+  id: string;
+  jobId: string;
+  name: string;
+  /** Supabase Storage object path (primary — supports large files). */
+  storagePath?: string;
+  /** Public URL of the stored object (derived from storagePath). */
+  storageUrl?: string;
+  /** Base64 data URL — fallback when Storage is not configured. */
+  dataUrl?: string;
+  /** Which storage mechanism holds the file. */
+  storageProvider: 'storage' | 'base64';
+  sizeBytes: number;
+  mimeType: string;
+  at: string;
 }
 
 /**
@@ -470,8 +492,8 @@ export interface Database {
   chemData: ChemData;
   /** Uploaded videos (base64 data URLs — permanent, in Supabase) */
   videos: Video[];
-  /** Deliverable Studio: master prompt, base/lesson files and generation jobs */
-  deliverables: (StudioFile | DeliverableJob | MasterPromptConfig)[];
+  /** Deliverable Studio: master prompt, base/lesson files, jobs and results */
+  deliverables: (StudioFile | DeliverableJob | MasterPromptConfig | DeliverableResult)[];
 }
 
 /** Auth result returned by the mock auth service. */
